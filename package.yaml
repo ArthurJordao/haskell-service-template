@@ -22,6 +22,14 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - rio
+- unliftio
+- conduit
+- conduit-extra
+- aeson
+- aeson-pretty
+- attoparsec
+- attoparsec-binary
+- text
 
 ghc-options:
 - -Wall
