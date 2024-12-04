@@ -25,7 +25,9 @@ source-repository head
 
 library
   exposed-modules:
+      API
       Lib
+      Server
   other-modules:
       Paths_haskell_service_template
   autogen-modules:
@@ -51,8 +53,11 @@ library
     , conduit
     , conduit-extra
     , rio
+    , servant
+    , servant-server
     , text
     , unliftio
+    , warp
   default-language: Haskell2010
 
 executable haskell-service-template-exe
@@ -83,8 +88,11 @@ executable haskell-service-template-exe
     , conduit-extra
     , haskell-service-template
     , rio
+    , servant
+    , servant-server
     , text
     , unliftio
+    , warp
   default-language: Haskell2010
 
 test-suite haskell-service-template-test
@@ -116,6 +124,9 @@ test-suite haskell-service-template-test
     , conduit-extra
     , haskell-service-template
     , rio
+    , servant
+    , servant-server
     , text
     , unliftio
+    , warp
   default-language: Haskell2010

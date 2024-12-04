@@ -30,6 +30,9 @@ dependencies:
 - attoparsec
 - attoparsec-binary
 - text
+- servant
+- servant-server
+- warp
 
 ghc-options:
 - -Wall

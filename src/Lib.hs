@@ -1,9 +1,10 @@
 module Lib
-  ( someFunc,
+  ( app,
   )
 where
 
 import RIO
+import Server (startApp)
 
-someFunc :: IO ()
-someFunc = runSimpleApp $ logInfo "someFunc"
+app :: IO ()
+app = startApp
