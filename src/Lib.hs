@@ -1,6 +1,9 @@
 module Lib
-    ( someFunc
-    ) where
+  ( someFunc,
+  )
+where
+
+import RIO
 
 someFunc :: IO ()
-someFunc = putStrLn "someFunc"
+someFunc = runSimpleApp $ logInfo "someFunc"

@@ -32,9 +32,19 @@ library
       Paths_haskell_service_template
   hs-source-dirs:
       src
+  default-extensions:
+      LambdaCase
+      OverloadedRecordDot
+      OverloadedStrings
+      NoImplicitPrelude
+      BangPatterns
+      BinaryLiterals
+      DeriveGeneric
+      ScopedTypeVariables
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       base >=4.7 && <5
+    , rio
   default-language: Haskell2010
 
 executable haskell-service-template-exe
@@ -45,10 +55,20 @@ executable haskell-service-template-exe
       Paths_haskell_service_template
   hs-source-dirs:
       app
+  default-extensions:
+      LambdaCase
+      OverloadedRecordDot
+      OverloadedStrings
+      NoImplicitPrelude
+      BangPatterns
+      BinaryLiterals
+      DeriveGeneric
+      ScopedTypeVariables
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
     , haskell-service-template
+    , rio
   default-language: Haskell2010
 
 test-suite haskell-service-template-test
@@ -60,8 +80,18 @@ test-suite haskell-service-template-test
       Paths_haskell_service_template
   hs-source-dirs:
       test
+  default-extensions:
+      LambdaCase
+      OverloadedRecordDot
+      OverloadedStrings
+      NoImplicitPrelude
+      BangPatterns
+      BinaryLiterals
+      DeriveGeneric
+      ScopedTypeVariables
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       base >=4.7 && <5
     , haskell-service-template
+    , rio
   default-language: Haskell2010
