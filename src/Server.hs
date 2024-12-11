@@ -11,10 +11,13 @@ data App = App
   { appLogFunc :: !LogFunc
   }
 
-type AppM = RIO App
+instance HasLogFunc App where
+  logFuncL = lens appLogFunc (\x y -> x {appLogFunc = y})
 
-server :: ServerT API AppM
-server = return "Hello, world!"
+server :: ServerT API (RIO App)
+server = do
+  logInfo "Api called"
+  return "Hello, world!"
 
 api :: Proxy API
 api = Proxy
