@@ -3,16 +3,31 @@
 module Server (startApp) where
 
 import API
+import qualified Data.Maybe
 import Network.Wai.Handler.Warp (run)
 import RIO
+import RIO.Text (pack)
 import Servant
+import System.Environment.Blank (getEnvDefault)
+
+data EnvVariables = EnvVariables
+  { port :: Int,
+    environment :: Text
+  }
 
 data App = App
-  { appLogFunc :: !LogFunc
+  { appLogFunc :: !LogFunc,
+    envVariables :: !EnvVariables
   }
 
 instance HasLogFunc App where
   logFuncL = lens appLogFunc (\x y -> x {appLogFunc = y})
+
+class HasEnvVariables env where
+  envVariablesL :: Lens' env EnvVariables
+
+instance HasEnvVariables App where
+  envVariablesL = lens envVariables (\x y -> x {envVariables = y})
 
 server :: ServerT API (RIO App)
 server =
@@ -23,9 +38,10 @@ server =
 accounts :: [Account]
 accounts = [Account 1 "Alice", Account 2 "Bob"]
 
-statusHandler :: (HasLogFunc a) => RIO a Text
+statusHandler :: (HasLogFunc a, HasEnvVariables a) => RIO a Text
 statusHandler = do
-  logInfo "Status endpoint called"
+  env <- view envVariablesL
+  logInfo ("Status endpoint called env level" <> displayShow (environment env))
   return "OK"
 
 accountsHandler :: (HasLogFunc a) => RIO a [Account]
@@ -55,6 +71,16 @@ app env = serveWithContext api (appContext env) (hoistServerWithContext api (Pro
 startApp :: IO ()
 startApp = do
   logOptions <- logOptionsHandle stderr True
+  portStr <- getEnvDefault "PORT" "8080"
+  environment' <- getEnvDefault "ENVIRONMENT" "development"
   withLogFunc logOptions $ \logFunc -> do
-    let env = App {appLogFunc = logFunc}
-    run 8080 (app env)
+    let env =
+          App
+            { appLogFunc = logFunc,
+              envVariables =
+                EnvVariables
+                  { port = Data.Maybe.fromMaybe 8080 (readMaybe portStr :: Maybe Int),
+                    environment = pack environment'
+                  }
+            }
+    run (port $ envVariables env) (app env)
