@@ -11,23 +11,23 @@ import Servant
 import System.Environment.Blank (getEnvDefault)
 
 data EnvVariables = EnvVariables
-  { port :: Int,
-    environment :: Text
+  { port :: Int
+  , environment :: Text
   }
 
 data App = App
-  { appLogFunc :: !LogFunc,
-    envVariables :: !EnvVariables
+  { appLogFunc :: !LogFunc
+  , envVariables :: !EnvVariables
   }
 
 instance HasLogFunc App where
-  logFuncL = lens appLogFunc (\x y -> x {appLogFunc = y})
+  logFuncL = lens appLogFunc (\x y -> x{appLogFunc = y})
 
 class HasEnvVariables env where
   envVariablesL :: Lens' env EnvVariables
 
 instance HasEnvVariables App where
-  envVariablesL = lens envVariables (\x y -> x {envVariables = y})
+  envVariablesL = lens envVariables (\x y -> x{envVariables = y})
 
 server :: ServerT API (RIO App)
 server =
@@ -55,7 +55,7 @@ accountByIdHandler accId = do
   let account = filter (\acc -> accountId acc == accId) accounts
   case account of
     [acc] -> return acc
-    _ -> throwM err404 {errBody = "Account not found"}
+    _ -> throwM err404{errBody = "Account not found"}
 
 api :: Proxy API
 api = Proxy
@@ -76,11 +76,11 @@ startApp = do
   withLogFunc logOptions $ \logFunc -> do
     let env =
           App
-            { appLogFunc = logFunc,
-              envVariables =
+            { appLogFunc = logFunc
+            , envVariables =
                 EnvVariables
-                  { port = Data.Maybe.fromMaybe 8080 (readMaybe portStr :: Maybe Int),
-                    environment = pack environment'
+                  { port = Data.Maybe.fromMaybe 8080 (readMaybe portStr :: Maybe Int)
+                  , environment = pack environment'
                   }
             }
     run (port $ envVariables env) (app env)

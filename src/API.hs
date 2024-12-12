@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 
-module API (API, Account(..)) where
+module API (API, Account (..)) where
 
 import Data.Aeson (FromJSON, ToJSON)
 import RIO
@@ -13,8 +13,8 @@ type API =
     :<|> "accounts" :> Capture "id" Int :> Get '[JSON] Account
 
 data Account = Account
-  { accountId :: Int,
-    accountName :: Text
+  { accountId :: Int
+  , accountName :: Text
   }
   deriving (Generic)
 

@@ -1,6 +1,6 @@
-module Lib
-  ( app,
-  )
+module Lib (
+  app,
+)
 where
 
 import RIO
