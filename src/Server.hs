@@ -10,24 +10,24 @@ import RIO.Text (pack)
 import Servant
 import System.Environment.Blank (getEnvDefault)
 
-data EnvVariables = EnvVariables
+data Config = Config
   { port :: Int
   , environment :: Text
   }
 
 data App = App
   { appLogFunc :: !LogFunc
-  , envVariables :: !EnvVariables
+  , config :: !Config
   }
 
 instance HasLogFunc App where
   logFuncL = lens appLogFunc (\x y -> x{appLogFunc = y})
 
-class HasEnvVariables env where
-  envVariablesL :: Lens' env EnvVariables
+class HasConfig env where
+  envVariablesL :: Lens' env Config
 
-instance HasEnvVariables App where
-  envVariablesL = lens envVariables (\x y -> x{envVariables = y})
+instance HasConfig App where
+  envVariablesL = lens config (\x y -> x{config = y})
 
 server :: ServerT API (RIO App)
 server =
@@ -38,7 +38,7 @@ server =
 accounts :: [Account]
 accounts = [Account 1 "Alice", Account 2 "Bob"]
 
-statusHandler :: (HasLogFunc a, HasEnvVariables a) => RIO a Text
+statusHandler :: (HasLogFunc a, HasConfig a) => RIO a Text
 statusHandler = do
   env <- view envVariablesL
   logInfo ("Status endpoint called env level" <> displayShow (environment env))
@@ -77,10 +77,10 @@ startApp = do
     let env =
           App
             { appLogFunc = logFunc
-            , envVariables =
-                EnvVariables
+            , config =
+                Config
                   { port = Data.Maybe.fromMaybe 8080 (readMaybe portStr :: Maybe Int)
                   , environment = pack environment'
                   }
             }
-    run (port $ envVariables env) (app env)
+    run (port $ config env) (app env)
