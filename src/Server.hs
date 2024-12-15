@@ -1,6 +1,4 @@
-{-# LANGUAGE DataKinds #-}
-
-module Server (startApp) where
+module Server (startApp, Config (..), App (..), app) where
 
 import API
 import qualified Data.Maybe

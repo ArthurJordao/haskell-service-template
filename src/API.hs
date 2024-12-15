@@ -1,6 +1,3 @@
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeOperators #-}
-
 module API (API, Account (..)) where
 
 import Data.Aeson (FromJSON, ToJSON)

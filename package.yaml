@@ -33,6 +33,11 @@ dependencies:
 - servant
 - servant-server
 - warp
+- hspec
+- wai
+- servant-client
+- http-client
+- http-types
 
 ghc-options:
 - -Wall
@@ -46,45 +51,16 @@ ghc-options:
 - -Wredundant-constraints
 
 default-extensions:
-  - AutoDeriveTypeable
+  - LambdaCase
+  - OverloadedRecordDot
+  - OverloadedStrings
+  - NoImplicitPrelude
   - BangPatterns
   - BinaryLiterals
-  - ConstraintKinds
-  - DataKinds
-  - DefaultSignatures
-  - DeriveDataTypeable
-  - DeriveFoldable
-  - DeriveFunctor
   - DeriveGeneric
-  - DeriveTraversable
-  - DoAndIfThenElse
-  - EmptyDataDecls
-  - ExistentialQuantification
-  - FlexibleContexts
-  - FlexibleInstances
-  - FunctionalDependencies
-  - GADTs
-  - GeneralizedNewtypeDeriving
-  - InstanceSigs
-  - KindSignatures
-  - LambdaCase
-  - MonadFailDesugaring
-  - MultiParamTypeClasses
-  - MultiWayIf
-  - NamedFieldPuns
-  - NoImplicitPrelude
-  - OverloadedStrings
-  - PartialTypeSignatures
-  - PatternGuards
-  - PolyKinds
-  - RankNTypes
-  - RecordWildCards
   - ScopedTypeVariables
-  - StandaloneDeriving
-  - TupleSections
-  - TypeFamilies
-  - TypeSynonymInstances
-  - ViewPatterns
+  - DataKinds
+  - TypeOperators
 
 
 library:
