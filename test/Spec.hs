@@ -10,7 +10,7 @@ withTestApp action = do
   let testConfig = Config {port = 8080, environment = "test"}
   logOptions <- logOptionsHandle stderr True
   withLogFunc logOptions $ \logFunc -> do
-    let testApp = App {appLogFunc = logFunc, config = testConfig}
+    let testApp = App {appLogFunc = logFunc, config = testConfig, db = undefined}
     testWithApplication (pure $ app testApp) $ \port' -> action port' testApp
 
 spec :: Spec

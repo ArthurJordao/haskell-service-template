@@ -1,7 +1,11 @@
 module Server (startApp, Config (..), App (..), app) where
 
 import API
+import Control.Monad.Logger (runStderrLoggingT)
 import qualified Data.Maybe
+import Database.Persist.Sql (entityVal, get, runMigration, selectList, toSqlKey)
+import Database.Persist.Sqlite (ConnectionPool, createSqlitePool, runSqlPool)
+import Models.Account (AccountId, migrateAll)
 import Network.Wai.Handler.Warp (run)
 import RIO
 import RIO.Text (pack)
@@ -15,7 +19,8 @@ data Config = Config
 
 data App = App
   { appLogFunc :: !LogFunc,
-    config :: !Config
+    config :: !Config,
+    db :: ConnectionPool
   }
 
 instance HasLogFunc App where
@@ -27,14 +32,17 @@ class HasConfig env where
 instance HasConfig App where
   envVariablesL = lens config (\x y -> x {config = y})
 
+class HasDB env where
+  dbL :: Lens' env ConnectionPool
+
+instance HasDB App where
+  dbL = lens db (\x y -> x {db = y})
+
 server :: ServerT API (RIO App)
 server =
   statusHandler
     :<|> accountsHandler
     :<|> accountByIdHandler
-
-accounts :: [Account]
-accounts = [Account 1 "Alice", Account 2 "Bob"]
 
 statusHandler :: (HasLogFunc a, HasConfig a) => RIO a Text
 statusHandler = do
@@ -42,18 +50,21 @@ statusHandler = do
   logInfo ("Status endpoint called env level" <> displayShow (environment env))
   return "OK"
 
-accountsHandler :: (HasLogFunc a) => RIO a [Account]
+accountsHandler :: (HasLogFunc a, HasDB a) => RIO a [Account]
 accountsHandler = do
   logInfo "Accounts endpoint called"
-  return accounts
+  pool <- view dbL
+  accounts <- liftIO $ runSqlPool (selectList [] []) pool
+  return $ map entityVal accounts
 
-accountByIdHandler :: (HasLogFunc a) => Int -> RIO a Account
+accountByIdHandler :: (HasLogFunc a, HasDB a) => Int -> RIO a Account
 accountByIdHandler accId = do
   logInfo $ "Account endpoint called with ID: " <> displayShow accId
-  let account = filter (\acc -> accountId acc == accId) accounts
-  case account of
-    [acc] -> return acc
-    _ -> throwM err404 {errBody = "Account not found"}
+  pool <- view dbL
+  maybeAccount <- liftIO $ runSqlPool (get (toSqlKey (fromIntegral accId) :: AccountId)) pool
+  case maybeAccount of
+    Just account -> return account
+    Nothing -> throwM err404 {errBody = "Account not found"}
 
 api :: Proxy API
 api = Proxy
@@ -71,6 +82,8 @@ startApp = do
   logOptions <- logOptionsHandle stderr True
   portStr <- getEnvDefault "PORT" "8080"
   environment' <- getEnvDefault "ENVIRONMENT" "development"
+  pool <- runStderrLoggingT $ createSqlitePool "accounts.db" 10
+  runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
   withLogFunc logOptions $ \logFunc -> do
     let env =
           App
@@ -79,6 +92,7 @@ startApp = do
                 Config
                   { port = Data.Maybe.fromMaybe 8080 (readMaybe portStr :: Maybe Int),
                     environment = pack environment'
-                  }
+                  },
+              db = pool
             }
     run (port $ config env) (app env)

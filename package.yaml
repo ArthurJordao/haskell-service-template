@@ -38,6 +38,10 @@ dependencies:
 - servant-client
 - http-client
 - http-types
+- persistent
+- persistent-sqlite
+- esqueleto
+- monad-logger
 
 ghc-options:
 - -Wall

@@ -27,6 +27,7 @@ library
   exposed-modules:
       API
       Lib
+      Models.Account
       Server
   other-modules:
       Paths_haskell_service_template
@@ -54,9 +55,13 @@ library
     , base >=4.7 && <5
     , conduit
     , conduit-extra
+    , esqueleto
     , hspec
     , http-client
     , http-types
+    , monad-logger
+    , persistent
+    , persistent-sqlite
     , rio
     , servant
     , servant-client
@@ -95,10 +100,14 @@ executable haskell-service-template-exe
     , base >=4.7 && <5
     , conduit
     , conduit-extra
+    , esqueleto
     , haskell-service-template
     , hspec
     , http-client
     , http-types
+    , monad-logger
+    , persistent
+    , persistent-sqlite
     , rio
     , servant
     , servant-client
@@ -138,10 +147,14 @@ test-suite haskell-service-template-test
     , base >=4.7 && <5
     , conduit
     , conduit-extra
+    , esqueleto
     , haskell-service-template
     , hspec
     , http-client
     , http-types
+    , monad-logger
+    , persistent
+    , persistent-sqlite
     , rio
     , servant
     , servant-client
