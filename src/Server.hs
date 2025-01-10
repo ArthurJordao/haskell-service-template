@@ -9,23 +9,23 @@ import Servant
 import System.Environment.Blank (getEnvDefault)
 
 data Config = Config
-  { port :: Int
-  , environment :: Text
+  { port :: Int,
+    environment :: Text
   }
 
 data App = App
-  { appLogFunc :: !LogFunc
-  , config :: !Config
+  { appLogFunc :: !LogFunc,
+    config :: !Config
   }
 
 instance HasLogFunc App where
-  logFuncL = lens appLogFunc (\x y -> x{appLogFunc = y})
+  logFuncL = lens appLogFunc (\x y -> x {appLogFunc = y})
 
 class HasConfig env where
   envVariablesL :: Lens' env Config
 
 instance HasConfig App where
-  envVariablesL = lens config (\x y -> x{config = y})
+  envVariablesL = lens config (\x y -> x {config = y})
 
 server :: ServerT API (RIO App)
 server =
@@ -53,7 +53,7 @@ accountByIdHandler accId = do
   let account = filter (\acc -> accountId acc == accId) accounts
   case account of
     [acc] -> return acc
-    _ -> throwM err404{errBody = "Account not found"}
+    _ -> throwM err404 {errBody = "Account not found"}
 
 api :: Proxy API
 api = Proxy
@@ -74,11 +74,11 @@ startApp = do
   withLogFunc logOptions $ \logFunc -> do
     let env =
           App
-            { appLogFunc = logFunc
-            , config =
+            { appLogFunc = logFunc,
+              config =
                 Config
-                  { port = Data.Maybe.fromMaybe 8080 (readMaybe portStr :: Maybe Int)
-                  , environment = pack environment'
+                  { port = Data.Maybe.fromMaybe 8080 (readMaybe portStr :: Maybe Int),
+                    environment = pack environment'
                   }
             }
     run (port $ config env) (app env)
