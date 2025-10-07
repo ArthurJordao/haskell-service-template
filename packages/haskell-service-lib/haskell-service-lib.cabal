@@ -1,0 +1,113 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.37.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           haskell-service-lib
+version:        0.1.0.0
+description:    Shared infrastructure for Haskell microservices
+homepage:       https://github.com/githubuser/haskell-service-lib#readme
+bug-reports:    https://github.com/githubuser/haskell-service-lib/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2025 Author name here
+license:        BSD-3-Clause
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/haskell-service-lib
+
+library
+  exposed-modules:
+      Service.Kafka
+      Service.Test.Kafka
+      Service.CorrelationId
+      Service.Database
+      Service.Server
+  other-modules:
+      Paths_haskell_service_lib
+  autogen-modules:
+      Paths_haskell_service_lib
+  hs-source-dirs:
+      src
+  default-extensions:
+      LambdaCase
+      OverloadedRecordDot
+      OverloadedStrings
+      NoImplicitPrelude
+      BangPatterns
+      DeriveGeneric
+      ScopedTypeVariables
+      DataKinds
+      TypeOperators
+      FlexibleInstances
+      RecordWildCards
+      TypeApplications
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , containers
+    , envy
+    , fast-logger
+    , hw-kafka-client
+    , monad-logger
+    , persistent
+    , persistent-sqlite
+    , random
+    , resource-pool
+    , rio
+    , text
+    , vault
+    , wai
+  default-language: Haskell2010
+
+test-suite haskell-service-lib-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      KafkaSpec
+      Paths_haskell_service_lib
+  autogen-modules:
+      Paths_haskell_service_lib
+  hs-source-dirs:
+      test
+  default-extensions:
+      LambdaCase
+      OverloadedRecordDot
+      OverloadedStrings
+      NoImplicitPrelude
+      BangPatterns
+      DeriveGeneric
+      ScopedTypeVariables
+      DataKinds
+      TypeOperators
+      FlexibleInstances
+      RecordWildCards
+      TypeApplications
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , base >=4.7 && <5
+    , containers
+    , envy
+    , fast-logger
+    , haskell-service-lib
+    , hspec
+    , hw-kafka-client
+    , monad-logger
+    , persistent
+    , persistent-sqlite
+    , random
+    , resource-pool
+    , rio
+    , text
+    , vault
+    , wai
+  default-language: Haskell2010

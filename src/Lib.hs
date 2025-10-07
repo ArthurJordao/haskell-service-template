@@ -3,8 +3,14 @@ module Lib (
 )
 where
 
+import qualified App
 import RIO
-import Server (startApp)
+import Settings (loadSettings)
 
 app :: IO ()
-app = startApp
+app = do
+  logOptions <- logOptionsHandle stderr True
+  withLogFunc logOptions $ \logFunc -> do
+    settings <- loadSettings logFunc
+    appEnv <- App.initializeApp settings logFunc
+    App.runApp appEnv

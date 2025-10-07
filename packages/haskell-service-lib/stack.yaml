@@ -18,7 +18,7 @@
 # snapshot: ./custom-snapshot.yaml
 # snapshot: https://example.com/snapshots/2024-01-01.yaml
 snapshot:
-  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/22/43.yaml
+  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/24/14.yaml
 
 # User packages to be built.
 # Various formats can be used as shown in the example below.
@@ -31,7 +31,6 @@ snapshot:
 #   - wai
 packages:
 - .
-- packages/haskell-service-lib
 # Dependency packages to be pulled from upstream that are not in the snapshot.
 # These entries can reference officially published versions as well as
 # forks / in-progress versions pinned to a git hash. For example:
@@ -61,9 +60,8 @@ packages:
 # arch: x86_64
 #
 # Extra directories used by Stack for building
-extra-include-dirs: [/opt/homebrew/opt/librdkafka/include]
-extra-lib-dirs: [/opt/homebrew/opt/librdkafka/lib]
+# extra-include-dirs: [/path/to/dir]
+# extra-lib-dirs: [/path/to/dir]
 #
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor
-notify-if-nix-on-path: false

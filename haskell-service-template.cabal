@@ -26,9 +26,12 @@ source-repository head
 library
   exposed-modules:
       API
+      App
+      Handlers.Kafka
+      Handlers.Server
       Lib
       Models.Account
-      Server
+      Settings
   other-modules:
       Paths_haskell_service_template
   autogen-modules:
@@ -46,6 +49,14 @@ library
       ScopedTypeVariables
       DataKinds
       TypeOperators
+      RecordWildCards
+      FunctionalDependencies
+      AllowAmbiguousTypes
+      TypeApplications
+      FlexibleInstances
+      UndecidableInstances
+      DerivingStrategies
+      DeriveAnyClass
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       aeson
@@ -55,19 +66,27 @@ library
     , base >=4.7 && <5
     , conduit
     , conduit-extra
+    , containers
+    , envy
     , esqueleto
+    , fast-logger
+    , haskell-service-lib
     , hspec
     , http-client
     , http-types
+    , hw-kafka-client
     , monad-logger
     , persistent
     , persistent-sqlite
+    , random
+    , resource-pool
     , rio
     , servant
     , servant-client
     , servant-server
     , text
     , unliftio
+    , vault
     , wai
     , warp
   default-language: Haskell2010
@@ -91,6 +110,14 @@ executable haskell-service-template-exe
       ScopedTypeVariables
       DataKinds
       TypeOperators
+      RecordWildCards
+      FunctionalDependencies
+      AllowAmbiguousTypes
+      TypeApplications
+      FlexibleInstances
+      UndecidableInstances
+      DerivingStrategies
+      DeriveAnyClass
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
@@ -100,20 +127,90 @@ executable haskell-service-template-exe
     , base >=4.7 && <5
     , conduit
     , conduit-extra
+    , containers
+    , envy
     , esqueleto
+    , fast-logger
+    , haskell-service-lib
     , haskell-service-template
     , hspec
     , http-client
     , http-types
+    , hw-kafka-client
     , monad-logger
     , persistent
     , persistent-sqlite
+    , random
+    , resource-pool
     , rio
     , servant
     , servant-client
     , servant-server
     , text
     , unliftio
+    , vault
+    , wai
+    , warp
+  default-language: Haskell2010
+
+executable run-migrations
+  main-is: Main.hs
+  other-modules:
+      Paths_haskell_service_template
+  autogen-modules:
+      Paths_haskell_service_template
+  hs-source-dirs:
+      migrations-app
+  default-extensions:
+      LambdaCase
+      OverloadedRecordDot
+      OverloadedStrings
+      NoImplicitPrelude
+      BangPatterns
+      BinaryLiterals
+      DeriveGeneric
+      ScopedTypeVariables
+      DataKinds
+      TypeOperators
+      RecordWildCards
+      FunctionalDependencies
+      AllowAmbiguousTypes
+      TypeApplications
+      FlexibleInstances
+      UndecidableInstances
+      DerivingStrategies
+      DeriveAnyClass
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , aeson-pretty
+    , attoparsec
+    , attoparsec-binary
+    , base >=4.7 && <5
+    , conduit
+    , conduit-extra
+    , containers
+    , envy
+    , esqueleto
+    , fast-logger
+    , haskell-service-lib
+    , haskell-service-template
+    , hspec
+    , http-client
+    , http-types
+    , hw-kafka-client
+    , monad-logger
+    , persistent
+    , persistent-sqlite
+    , random
+    , resource-pool
+    , rio
+    , servant
+    , servant-client
+    , servant-server
+    , text
+    , unliftio
+    , vault
     , wai
     , warp
   default-language: Haskell2010
@@ -138,6 +235,14 @@ test-suite haskell-service-template-test
       ScopedTypeVariables
       DataKinds
       TypeOperators
+      RecordWildCards
+      FunctionalDependencies
+      AllowAmbiguousTypes
+      TypeApplications
+      FlexibleInstances
+      UndecidableInstances
+      DerivingStrategies
+      DeriveAnyClass
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
@@ -147,20 +252,28 @@ test-suite haskell-service-template-test
     , base >=4.7 && <5
     , conduit
     , conduit-extra
+    , containers
+    , envy
     , esqueleto
+    , fast-logger
+    , haskell-service-lib
     , haskell-service-template
     , hspec
     , http-client
     , http-types
+    , hw-kafka-client
     , monad-logger
     , persistent
     , persistent-sqlite
+    , random
+    , resource-pool
     , rio
     , servant
     , servant-client
     , servant-server
     , text
     , unliftio
+    , vault
     , wai
     , warp
   default-language: Haskell2010

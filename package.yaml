@@ -42,6 +42,14 @@ dependencies:
 - persistent-sqlite
 - esqueleto
 - monad-logger
+- hw-kafka-client
+- containers
+- envy
+- vault
+- random
+- fast-logger
+- resource-pool
+- haskell-service-lib
 
 ghc-options:
 - -Wall
@@ -65,6 +73,14 @@ default-extensions:
   - ScopedTypeVariables
   - DataKinds
   - TypeOperators
+  - RecordWildCards
+  - FunctionalDependencies
+  - AllowAmbiguousTypes
+  - TypeApplications
+  - FlexibleInstances
+  - UndecidableInstances
+  - DerivingStrategies
+  - DeriveAnyClass
 
 
 library:
@@ -74,6 +90,16 @@ executables:
   haskell-service-template-exe:
     main:                Main.hs
     source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - haskell-service-template
+
+  run-migrations:
+    main:                Main.hs
+    source-dirs:         migrations-app
     ghc-options:
     - -threaded
     - -rtsopts
