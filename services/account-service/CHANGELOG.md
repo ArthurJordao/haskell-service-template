@@ -1,4 +1,4 @@
-# Changelog for `haskell-service-template`
+# Changelog for `account-service`
 
 All notable changes to this project will be documented in this file.
 
@@ -9,3 +9,9 @@ and this project adheres to the
 ## Unreleased
 
 ## 0.1.0.0 - YYYY-MM-DD
+
+- Initial release
+- Account management HTTP API
+- Kafka event integration
+- SQLite database with migrations
+- Correlation ID tracking
