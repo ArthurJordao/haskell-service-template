@@ -41,7 +41,9 @@ packages:
 # - git: https://github.com/commercialhaskell/stack.git
 #   commit: e7b331f14bcffb8367cd58fbfc8b40ec7642100a
 #
-# extra-deps: []
+extra-deps:
+- postgresql-libpq-0.11.0.0
+- postgresql-libpq-configure-0.11@sha256:019c5d83da0b4dc0b4487e0e868f2eed5efa25e0688f5cfc2ba8191a80e527aa,1309
 
 # Override default flag values for project packages and extra-deps
 # flags: {}
@@ -61,8 +63,12 @@ packages:
 # arch: x86_64
 #
 # Extra directories used by Stack for building
-extra-include-dirs: [/opt/homebrew/opt/librdkafka/include]
-extra-lib-dirs: [/opt/homebrew/opt/librdkafka/lib]
+extra-include-dirs:
+  - /opt/homebrew/opt/librdkafka/include
+  - /opt/homebrew/opt/postgresql@17/include
+extra-lib-dirs:
+  - /opt/homebrew/opt/librdkafka/lib
+  - /opt/homebrew/opt/postgresql@17/lib
 #
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor

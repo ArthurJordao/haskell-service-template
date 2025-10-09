@@ -10,8 +10,7 @@ module App (
 import API
 import Control.Monad.Logger (runStderrLoggingT)
 import qualified Data.Map.Strict as Map
-import Database.Persist.Sql (runMigration)
-import Database.Persist.Sqlite (ConnectionPool, createSqlitePool, runSqlPool)
+import Database.Persist.Sql (runMigration, ConnectionPool, runSqlPool)
 import qualified Service.Database as Database
 import qualified Handlers.Kafka
 import qualified Handlers.Server
@@ -75,7 +74,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
   let dbSettings = database settings
       kafkaSettings = kafka settings
 
-  pool <- liftIO $ runStderrLoggingT $ createSqlitePool (Database.dbPath dbSettings) (Database.dbPoolSize dbSettings)
+  pool <- liftIO $ Database.createConnectionPool dbSettings
 
   when (Database.dbAutoMigrate dbSettings) $ do
     logInfo "Running database migrations (DB_AUTO_MIGRATE=true)"

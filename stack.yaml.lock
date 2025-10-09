@@ -3,7 +3,21 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: postgresql-libpq-0.11.0.0@sha256:0ab16fc44ed13acbeeee2d90944a34505eb5b227bcac84634d3912211eb2b008,2665
+    pantry-tree:
+      sha256: b2a16698a88afe2bf6385eb5d114799a8fba893aa100b1d549f80c0b0bd1659d
+      size: 1048
+  original:
+    hackage: postgresql-libpq-0.11.0.0
+- completed:
+    hackage: postgresql-libpq-configure-0.11@sha256:019c5d83da0b4dc0b4487e0e868f2eed5efa25e0688f5cfc2ba8191a80e527aa,1309
+    pantry-tree:
+      sha256: 04a70f52cfacce71901efb1eafe3ae3103d133c1c4ee89ba7a51877c67503041
+      size: 353
+  original:
+    hackage: postgresql-libpq-configure-0.11@sha256:019c5d83da0b4dc0b4487e0e868f2eed5efa25e0688f5cfc2ba8191a80e527aa,1309
 snapshots:
 - completed:
     sha256: 08bd13ce621b41a8f5e51456b38d5b46d7783ce114a50ab604d6bbab0d002146

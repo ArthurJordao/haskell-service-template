@@ -19,6 +19,7 @@ dependencies:
 - hw-kafka-client
 - persistent
 - persistent-sqlite
+- persistent-postgresql
 - containers
 - text
 - wai

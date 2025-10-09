@@ -4,7 +4,6 @@ module Main (main) where
 
 import Control.Monad.Logger (runStderrLoggingT)
 import Database.Persist.Sql (runMigration, runSqlPool)
-import Database.Persist.Sqlite (createSqlitePool)
 import qualified Service.Database as Database
 import Models.Account (migrateAll)
 import RIO
@@ -21,13 +20,10 @@ main = do
   withLogFunc logOptions $ \logFunc -> runRIO logFunc $ do
     dbSettings <- Database.decoder
 
-    logInfo $ "Database: " <> displayShow (Database.dbPath dbSettings)
+    logInfo $ "Database type: " <> displayShow (Database.dbType dbSettings)
     logInfo "Connecting to database..."
 
-    pool <- liftIO $ runStderrLoggingT $
-      createSqlitePool
-        (Database.dbPath dbSettings)
-        1
+    pool <- liftIO $ Database.createConnectionPool dbSettings
 
     logInfo "Running migrations..."
 

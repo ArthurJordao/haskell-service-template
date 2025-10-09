@@ -4,8 +4,7 @@ import qualified App
 import Control.Monad.Logger (runStderrLoggingT)
 import Data.Aeson (Value, decode, encode)
 import qualified Data.Map.Strict as Map
-import Database.Persist.Sql (runMigration)
-import Database.Persist.Sqlite (ConnectionPool, createSqlitePool, runSqlPool)
+import Database.Persist.Sql (runMigration, ConnectionPool, runSqlPool)
 import qualified Service.Database as Database
 import qualified Handlers.Kafka
 import qualified Handlers.Server
@@ -60,13 +59,13 @@ withTestApp action = do
         Settings
           { http = Handlers.Server.Settings {Handlers.Server.httpPort = 8080, Handlers.Server.httpEnvironment = "test"},
             kafka = Handlers.Kafka.Settings {Handlers.Kafka.kafkaBroker = "localhost:9092", Handlers.Kafka.kafkaGroupId = "test-group"},
-            database = Database.Settings {Database.dbPath = ":memory:", Database.dbPoolSize = 1, Database.dbAutoMigrate = True}
+            database = Database.Settings {Database.dbType = Database.SQLite, Database.dbConnectionString = ":memory:", Database.dbPoolSize = 1, Database.dbAutoMigrate = True}
           }
   logOptions <- logOptionsHandle stderr True
   withLogFunc logOptions $ \logFunc -> do
     -- Setup mock Kafka and real database
     mockKafkaState <- newMockKafkaState
-    pool <- liftIO $ runStderrLoggingT $ createSqlitePool (Database.dbPath testSettings.database) 1
+    pool <- liftIO $ Database.createConnectionPool testSettings.database
     liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
 
     let testApp = TestApp
