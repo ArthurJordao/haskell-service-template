@@ -4,14 +4,14 @@ module Settings
   )
 where
 
-import qualified Handlers.Kafka
-import qualified Handlers.Server
+import qualified Ports.Server as Server
+import qualified Ports.Kafka as KafkaPort
 import RIO
 import qualified Service.Database as Database
 
 data Settings = Settings
-  { http :: !Handlers.Server.Settings,
-    kafka :: !Handlers.Kafka.Settings,
+  { server :: !Server.Settings,
+    kafka :: !KafkaPort.Settings,
     database :: !Database.Settings
   }
   deriving (Show, Eq)
@@ -19,8 +19,8 @@ data Settings = Settings
 decoder :: (HasLogFunc env) => RIO env Settings
 decoder =
   Settings
-    <$> Handlers.Server.decoder
-    <*> Handlers.Kafka.decoder
+    <$> Server.decoder
+    <*> KafkaPort.decoder
     <*> Database.decoder
 
 loadSettings :: LogFunc -> IO Settings

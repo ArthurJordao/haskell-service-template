@@ -1,10 +1,10 @@
-import API (API, AccountCreatedEvent (..), CreateAccountRequest (..))
+import Ports.Server (API, AccountCreatedEvent (..), CreateAccountRequest (..))
 import Control.Monad.Logger (runStderrLoggingT)
 import Data.Aeson (decode, encode)
 import qualified Data.Map.Strict as Map
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
-import qualified Handlers.Kafka
-import qualified Handlers.Server
+import qualified Ports.Server as Server
+import qualified Ports.Kafka as KafkaPort
 import Kafka.Consumer (TopicName (..))
 import Models.Account (Account (..), migrateAll)
 import Network.HTTP.Client (RequestBody (..), defaultManagerSettings, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseStatus)
@@ -37,9 +37,9 @@ instance HasLogFunc TestApp where
 instance HasLogContext TestApp where
   logContextL = lens testAppLogContext (\x y -> x {testAppLogContext = y})
 
-instance Handlers.Server.HasConfig TestApp Settings where
+instance Server.HasConfig TestApp Settings where
   settingsL = lens testAppSettings (\x y -> x {testAppSettings = y})
-  http = Settings.http
+  httpSettings = Settings.server
 
 instance HasDB TestApp where
   dbL = lens testAppDb (\x y -> x {testAppDb = y})
@@ -54,8 +54,8 @@ withTestApp :: (Int -> TestApp -> IO ()) -> IO ()
 withTestApp action = do
   let testSettings =
         Settings
-          { http = Handlers.Server.Settings {Handlers.Server.httpPort = 8080, Handlers.Server.httpEnvironment = "test"},
-            kafka = Handlers.Kafka.Settings {Handlers.Kafka.kafkaBroker = "localhost:9092", Handlers.Kafka.kafkaGroupId = "test-group"},
+          { server = Server.Settings {Server.httpPort = 8080, Server.httpEnvironment = "test"},
+            kafka = KafkaPort.Settings {KafkaPort.kafkaBroker = "localhost:9092", KafkaPort.kafkaGroupId = "test-group"},
             database = Database.Settings {Database.dbType = Database.SQLite, Database.dbConnectionString = ":memory:", Database.dbPoolSize = 1, Database.dbAutoMigrate = True}
           }
   logOptions <- logOptionsHandle stderr True
@@ -77,7 +77,7 @@ withTestApp action = do
     testWithApplication (pure $ testAppToWai testApp) $ \port' -> action port' testApp
 
 testAppToWai :: TestApp -> Application
-testAppToWai env = serve (Proxy @API) (hoistServer (Proxy @API) (runRIO env) Handlers.Server.server)
+testAppToWai env = serve (Proxy @API) (hoistServer (Proxy @API) (runRIO env) Server.server)
 
 spec :: Spec
 spec = describe "Server" $ do
@@ -144,7 +144,7 @@ spec = describe "Server" $ do
 
       -- Process messages through the consumer
       let mockConsumer = MockConsumer mockState
-          consumerCfg = Handlers.Kafka.consumerConfig (Settings.kafka $ testAppSettings testApp)
+          consumerCfg = KafkaPort.consumerConfig (Settings.kafka $ testAppSettings testApp)
       runRIO testApp $ processAllMessages mockConsumer consumerCfg
 
       -- Verify messages were consumed

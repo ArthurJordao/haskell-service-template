@@ -1,4 +1,4 @@
-module Handlers.Kafka
+module Ports.Kafka
   ( module Service.Kafka,
     consumerConfig,
     testTopicHandler,

@@ -1,33 +1,92 @@
-module Handlers.Server
-  ( server,
-    module Service.Server,
+module Ports.Server
+  ( API,
+    Routes (..),
+    Account (..),
+    CreateAccountRequest (..),
+    AccountCreatedEvent (..),
+    server,
     HasConfig (..),
+    module Service.Server,
   )
 where
 
-import API
+import Data.Aeson (FromJSON, ToJSON)
 import Database.Persist.Sql (Entity (..), entityVal, fromSqlKey, get, insert, selectList, toSqlKey)
 import Kafka.Consumer (TopicName (..))
-import Models.Account (AccountId)
+import Models.Account (Account (..), AccountId)
 import RIO
 import Servant
+import Servant.Server.Generic (AsServerT)
 import Service.CorrelationId (HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..), runSqlPoolWithCid)
 import Service.Kafka (HasKafkaProducer (..))
 import Service.Server
 
-server :: (HasLogFunc env, HasLogContext env, HasConfig env settings, HasDB env, HasKafkaProducer env) => ServerT API (RIO env)
+-- ============================================================================
+-- API Types
+-- ============================================================================
+
+data CreateAccountRequest = CreateAccountRequest
+  { createAccountName :: !Text,
+    createAccountEmail :: !Text
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+data AccountCreatedEvent = AccountCreatedEvent
+  { eventAccountId :: !Int,
+    eventAccountName :: !Text,
+    eventAccountEmail :: !Text
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+data Routes route = Routes
+  { status ::
+      route
+        :- Summary "Health check endpoint"
+          :> "status"
+          :> Get '[JSON] Text,
+    getAccounts ::
+      route
+        :- Summary "Get all accounts"
+          :> "accounts"
+          :> Get '[JSON] [Account],
+    getAccountById ::
+      route
+        :- Summary "Get account by ID"
+          :> "accounts"
+          :> Capture "id" Int
+          :> Get '[JSON] Account,
+    createAccount ::
+      route
+        :- Summary "Create a new account"
+          :> "accounts"
+          :> ReqBody '[JSON] CreateAccountRequest
+          :> Post '[JSON] Account
+  }
+  deriving stock (Generic)
+
+type API = NamedRoutes Routes
+
+-- ============================================================================
+-- Server Implementation
+-- ============================================================================
+
+server :: (HasLogFunc env, HasLogContext env, HasConfig env settings, HasDB env, HasKafkaProducer env) => Routes (AsServerT (RIO env))
 server =
-  statusHandler
-    :<|> accountsHandler
-    :<|> accountByIdHandler
-    :<|> createAccountHandler
+  Routes
+    { status = statusHandler,
+      getAccounts = accountsHandler,
+      getAccountById = accountByIdHandler,
+      createAccount = createAccountHandler
+    }
 
 statusHandler :: forall env settings. (HasLogFunc env, HasLogContext env, HasConfig env settings) => RIO env Text
 statusHandler = do
   settings <- view (settingsL @env @settings)
-  let httpSettings = http @env @settings settings
-  logInfoC ("Status endpoint called env level" <> displayShow (httpEnvironment httpSettings))
+  let serverSettings = httpSettings @env @settings settings
+  logInfoC ("Status endpoint called env level" <> displayShow (httpEnvironment serverSettings))
   return "OK"
 
 accountsHandler :: (HasLogFunc env, HasLogContext env, HasDB env) => RIO env [Account]
@@ -75,4 +134,4 @@ createAccountHandler req = do
 
 class HasConfig env settings | env -> settings where
   settingsL :: Lens' env settings
-  http :: settings -> Settings
+  httpSettings :: settings -> Settings

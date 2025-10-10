@@ -8,12 +8,11 @@ module App
   )
 where
 
-import API
 import Control.Monad.Logger (runStderrLoggingT)
 import qualified Data.Map.Strict as Map
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
-import qualified Handlers.Kafka
-import qualified Handlers.Server
+import qualified Ports.Server as Server
+import qualified Ports.Kafka as KafkaPort
 import Kafka.Producer (KafkaProducer)
 import Models.Account (migrateAll)
 import Network.Wai.Handler.Warp (run)
@@ -24,7 +23,7 @@ import Service.Database (HasDB (..))
 import qualified Service.Database as Database
 import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
-import Settings (Settings (..), http)
+import Settings (Settings (..), server)
 
 data App = App
   { appLogFunc :: !LogFunc,
@@ -44,9 +43,9 @@ instance HasLogContext App where
 instance HasCorrelationId App where
   correlationIdL = lens appCorrelationId (\x y -> x {appCorrelationId = y})
 
-instance Handlers.Server.HasConfig App Settings where
+instance Server.HasConfig App Settings where
   settingsL = lens appSettings (\x y -> x {appSettings = y})
-  http = http
+  httpSettings = server
 
 instance HasDB App where
   dbL = lens db (\x y -> x {db = y})
@@ -74,7 +73,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
     logInfo "Running database migrations (DB_AUTO_MIGRATE=true)"
     liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
 
-  producer <- Kafka.startProducer (Handlers.Kafka.kafkaBroker kafkaSettings)
+  producer <- Kafka.startProducer (KafkaPort.kafkaBroker kafkaSettings)
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
@@ -92,20 +91,20 @@ initializeApp settings logFunc = runRIO logFunc $ do
 runApp :: App -> IO ()
 runApp env = do
   let settings = appSettings env
-      httpSettings = http settings
+      serverSettings = server settings
       kafkaSettings = kafka settings
 
   runRIO env $ do
-    let consumerCfg = Handlers.Kafka.consumerConfig kafkaSettings
+    let consumerCfg = KafkaPort.consumerConfig kafkaSettings
     consumer <- Kafka.startConsumer consumerCfg
 
-    race_ (serverThread httpSettings) (kafkaThread consumer consumerCfg)
+    race_ (serverThread serverSettings) (kafkaThread consumer consumerCfg)
   where
-    serverThread :: Handlers.Server.Settings -> RIO App ()
-    serverThread httpSettings = do
+    serverThread :: Server.Settings -> RIO App ()
+    serverThread serverSettings = do
       appEnv <- ask
-      logInfoC $ "Starting HTTP server on port " <> displayShow (Handlers.Server.httpPort httpSettings)
-      liftIO $ run (Handlers.Server.httpPort httpSettings) (app appEnv)
+      logInfoC $ "Starting HTTP server on port " <> displayShow (Server.httpPort serverSettings)
+      liftIO $ run (Server.httpPort serverSettings) (app appEnv)
 
     kafkaThread :: Kafka.KafkaConsumer -> Kafka.ConsumerConfig App -> RIO App ()
     kafkaThread consumer consumerCfg = do
@@ -125,9 +124,9 @@ app baseEnv = correlationIdMiddleware $ \req ->
           .~ cid
             & logContextL
           .~ Map.singleton "cid" cidText
-   in serveWithContext api (appContext env) (hoistServerWithContext api (Proxy :: Proxy AppContext) (runRIO env) Handlers.Server.server) req
+   in serveWithContext api (appContext env) (hoistServerWithContext api (Proxy :: Proxy AppContext) (runRIO env) Server.server) req
   where
-    api :: Proxy API
+    api :: Proxy Server.API
     api = Proxy
 
     appContext :: App -> Context AppContext
