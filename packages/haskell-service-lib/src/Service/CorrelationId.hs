@@ -19,6 +19,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vault.Lazy as Vault
+import GHC.Stack (HasCallStack, withFrozenCallStack)
 import Network.Wai (Middleware, Request, requestHeaders, vault)
 import qualified Network.Wai as Wai
 import RIO
@@ -60,23 +61,23 @@ formatContext ctx
   where
     formatEntry (key, value) = fromString (T.unpack key) <> "=" <> fromString (T.unpack value) <> " "
 
-logInfoC :: (HasLogFunc env, HasLogContext env, MonadReader env m, MonadIO m) => Utf8Builder -> m ()
-logInfoC msg = do
+logInfoC :: (HasCallStack, HasLogFunc env, HasLogContext env, MonadReader env m, MonadIO m) => Utf8Builder -> m ()
+logInfoC msg = withFrozenCallStack $ do
   ctx <- view logContextL
   logInfo $ formatContext ctx <> msg
 
-logWarnC :: (HasLogFunc env, HasLogContext env, MonadReader env m, MonadIO m) => Utf8Builder -> m ()
-logWarnC msg = do
+logWarnC :: (HasCallStack, HasLogFunc env, HasLogContext env, MonadReader env m, MonadIO m) => Utf8Builder -> m ()
+logWarnC msg = withFrozenCallStack $ do
   ctx <- view logContextL
   logWarn $ formatContext ctx <> msg
 
-logErrorC :: (HasLogFunc env, HasLogContext env, MonadReader env m, MonadIO m) => Utf8Builder -> m ()
-logErrorC msg = do
+logErrorC :: (HasCallStack, HasLogFunc env, HasLogContext env, MonadReader env m, MonadIO m) => Utf8Builder -> m ()
+logErrorC msg = withFrozenCallStack $ do
   ctx <- view logContextL
   logError $ formatContext ctx <> msg
 
-logDebugC :: (HasLogFunc env, HasLogContext env, MonadReader env m, MonadIO m) => Utf8Builder -> m ()
-logDebugC msg = do
+logDebugC :: (HasCallStack, HasLogFunc env, HasLogContext env, MonadReader env m, MonadIO m) => Utf8Builder -> m ()
+logDebugC msg = withFrozenCallStack $ do
   ctx <- view logContextL
   logDebug $ formatContext ctx <> msg
 
