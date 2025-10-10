@@ -1,21 +1,22 @@
-module Service.Database (
-  HasDB (..),
-  runSqlPoolWithCid,
-  Settings (..),
-  DatabaseType (..),
-  decoder,
-  createConnectionPool,
-) where
+module Service.Database
+  ( HasDB (..),
+    runSqlPoolWithCid,
+    Settings (..),
+    DatabaseType (..),
+    decoder,
+    createConnectionPool,
+  )
+where
 
 import Control.Monad.Logger (LoggingT (..), runLoggingT, runStderrLoggingT)
 import qualified Data.Map.Strict as Map
-import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
-import Data.Text.Encoding.Error (lenientDecode)
-import Database.Persist.Sql (SqlBackend, ConnectionPool)
+import Data.Pool (withResource)
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Encoding.Error as TE
+import Database.Persist.Postgresql (createPostgresqlPool)
+import Database.Persist.Sql (ConnectionPool, SqlBackend)
 import Database.Persist.SqlBackend.Internal (connLogFunc)
 import Database.Persist.Sqlite (createSqlitePool)
-import Database.Persist.Postgresql (createPostgresqlPool)
-import Data.Pool (withResource)
 import RIO
 import RIO.Text (pack, toLower)
 import Service.CorrelationId (HasLogContext (..))
@@ -41,9 +42,10 @@ instance FromEnv Settings where
           "postgres" -> PostgreSQL
           _ -> SQLite
 
-    connectionString <- pack <$> case dbType' of
-      SQLite -> env "DB_CONNECTION_STRING" .!= "accounts.db"
-      PostgreSQL -> env "DB_CONNECTION_STRING" .!= "host=localhost port=5432 user=postgres dbname=accounts password=postgres"
+    connectionString <-
+      pack <$> case dbType' of
+        SQLite -> env "DB_CONNECTION_STRING" .!= "accounts.db"
+        PostgreSQL -> env "DB_CONNECTION_STRING" .!= "host=localhost port=5432 user=postgres dbname=accounts password=postgres"
 
     Settings dbType' connectionString
       <$> (env "DB_POOL_SIZE" .!= 10)
@@ -62,7 +64,7 @@ createConnectionPool :: Settings -> IO ConnectionPool
 createConnectionPool settings =
   runStderrLoggingT $ case settings.dbType of
     SQLite -> createSqlitePool settings.dbConnectionString settings.dbPoolSize
-    PostgreSQL -> createPostgresqlPool (encodeUtf8 settings.dbConnectionString) settings.dbPoolSize
+    PostgreSQL -> createPostgresqlPool (TE.encodeUtf8 settings.dbConnectionString) settings.dbPoolSize
 
 class HasDB env where
   dbL :: Lens' env ConnectionPool
@@ -80,12 +82,12 @@ runSqlPoolWithCid action pool = do
 
   withRunInIO $ \runInIO ->
     withResource pool $ \backend -> do
-      let wrappedLogFunc loc source level msg = do
-            let msgText = decodeUtf8With lenientDecode (fromLogStr msg)
+      let wrappedLogFunc _loc _source _level msg = do
+            let msgText = TE.decodeUtf8With TE.lenientDecode (fromLogStr msg)
                 prefixedMsg = cidPrefix <> msgText
             runInIO $ logInfo $ display prefixedMsg
 
-      let modifiedBackend = backend { connLogFunc = wrappedLogFunc }
+      let modifiedBackend = backend {connLogFunc = wrappedLogFunc}
 
       runInIO $ runLoggingT (runReaderT action modifiedBackend) $ \_ _ _ _ ->
         pure ()

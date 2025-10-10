@@ -1,32 +1,31 @@
-module Service.CorrelationId (
-  CorrelationId (..),
-  HasCorrelationId (..),
-  HasLogContext (..),
-  defaultCorrelationId,
-  generateCorrelationId,
-  appendCorrelationId,
-  correlationIdMiddleware,
-  extractCorrelationId,
-  logInfoC,
-  logWarnC,
-  logErrorC,
-  logDebugC,
-) where
+module Service.CorrelationId
+  ( CorrelationId (..),
+    HasCorrelationId (..),
+    HasLogContext (..),
+    defaultCorrelationId,
+    generateCorrelationId,
+    appendCorrelationId,
+    correlationIdMiddleware,
+    extractCorrelationId,
+    logInfoC,
+    logWarnC,
+    logErrorC,
+    logDebugC,
+  )
+where
 
 import Control.Monad (replicateM)
 import qualified Data.Map.Strict as Map
-import Data.String (fromString)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Vault.Lazy as Vault
 import Network.Wai (Middleware, Request, requestHeaders, vault)
 import qualified Network.Wai as Wai
-import RIO hiding ((!?))
+import RIO
 import qualified RIO.ByteString as BS
 import System.IO.Unsafe (unsafePerformIO)
 import System.Random (randomRIO)
-import qualified Data.Vault.Lazy as Vault
-import Prelude (String, (!!))
-
+import Prelude ((!!))
 
 newtype CorrelationId = CorrelationId {unCorrelationId :: Text}
   deriving (Show, Eq)
@@ -40,7 +39,7 @@ class HasCorrelationId env where
 class HasLogContext env where
   logContextL :: Lens' env (Map Text Text)
 
-generateCorrelationId :: MonadIO m => m CorrelationId
+generateCorrelationId :: (MonadIO m) => m CorrelationId
 generateCorrelationId = liftIO $ do
   let chars = "abcdefghijklmnopqrstuvwxyz0123456789"
       charsList = T.unpack chars
@@ -49,7 +48,7 @@ generateCorrelationId = liftIO $ do
     return (charsList !! idx)
   return $ CorrelationId $ T.pack ids
 
-appendCorrelationId :: MonadIO m => CorrelationId -> m CorrelationId
+appendCorrelationId :: (MonadIO m) => CorrelationId -> m CorrelationId
 appendCorrelationId (CorrelationId existingCid) = do
   newSegment <- generateCorrelationId
   return $ CorrelationId $ existingCid <> "." <> unCorrelationId newSegment
@@ -90,14 +89,15 @@ correlationIdMiddleware app req respond = do
   let maybeHeaderCid = lookup "X-Correlation-Id" (requestHeaders req)
 
   baseCid <- case maybeHeaderCid of
-    Just headerVal | not (BS.null headerVal) ->
-      return $ CorrelationId $ TE.decodeUtf8 headerVal
+    Just headerVal
+      | not (BS.null headerVal) ->
+          return $ CorrelationId $ TE.decodeUtf8 headerVal
     _ ->
       generateCorrelationId
 
   cid <- appendCorrelationId baseCid
 
-  let req' = req { Wai.vault = Vault.insert correlationIdKey cid (Wai.vault req) }
+  let req' = req {Wai.vault = Vault.insert correlationIdKey cid (Wai.vault req)}
 
   app req' $ \response -> do
     let cidHeader = ("X-Correlation-Id", TE.encodeUtf8 $ unCorrelationId cid)

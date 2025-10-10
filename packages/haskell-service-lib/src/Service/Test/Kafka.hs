@@ -1,22 +1,20 @@
-module Service.Test.Kafka (
-  MockKafkaState (..),
-  MockProducer (..),
-  MockConsumer (..),
-  QueuedMessage (..),
-  newMockKafkaState,
-  processAllMessages,
-  mockProduceMessage,
-) where
+module Service.Test.Kafka
+  ( MockKafkaState (..),
+    MockProducer (..),
+    MockConsumer (..),
+    QueuedMessage (..),
+    newMockKafkaState,
+    processAllMessages,
+    mockProduceMessage,
+  )
+where
 
-import Data.Aeson (ToJSON, Value, encode, toJSON)
+import Data.Aeson (ToJSON, Value, toJSON)
 import qualified Data.Map.Strict as Map
-import Service.Kafka (ConsumerConfig (..), HasKafkaProducer (..), TopicHandler (..))
-import Kafka.Consumer (ConsumerRecord (..), Offset (..), PartitionId (..), TopicName (..), Timestamp (..))
-import Kafka.Types (headersFromList)
+import Kafka.Consumer (TopicName (..))
 import RIO
-import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Seq as Seq
-
+import Service.Kafka (ConsumerConfig (..), TopicHandler (..))
 
 data QueuedMessage = QueuedMessage
   { qmTopic :: !TopicName,
@@ -25,27 +23,22 @@ data QueuedMessage = QueuedMessage
   }
   deriving (Show, Eq)
 
-
 data MockKafkaState = MockKafkaState
   { messageQueue :: !(TVar (Seq QueuedMessage)),
     messageCounter :: !(TVar Int),
     consumedMessages :: !(TVar (Seq QueuedMessage))
   }
 
-
 newtype MockProducer = MockProducer MockKafkaState
-
 
 newtype MockConsumer = MockConsumer MockKafkaState
 
-
-newMockKafkaState :: MonadIO m => m MockKafkaState
+newMockKafkaState :: (MonadIO m) => m MockKafkaState
 newMockKafkaState = do
   queue <- newTVarIO Seq.empty
   counter <- newTVarIO 0
   consumed <- newTVarIO Seq.empty
   return $ MockKafkaState queue counter consumed
-
 
 mockProduceMessage ::
   (HasLogFunc env, ToJSON a) =>
@@ -60,7 +53,6 @@ mockProduceMessage (MockProducer state) topic key value = do
   atomically $ modifyTVar' (messageQueue state) (Seq.|> msg)
   logDebug $ "Mock produced message to topic: " <> displayShow topic
 
-
 mockPollMessage ::
   (HasLogFunc env) =>
   MockConsumer ->
@@ -72,7 +64,7 @@ mockPollMessage (MockConsumer state) = do
       Seq.EmptyL -> return Nothing
       msg Seq.:< rest -> do
         writeTVar (messageQueue state) rest
-        counter <- readTVar (messageCounter state)
+        _counter <- readTVar (messageCounter state)
         modifyTVar' (messageCounter state) (+ 1)
         return $ Just msg
 
@@ -82,7 +74,6 @@ mockPollMessage (MockConsumer state) = do
       atomically $ modifyTVar' (consumedMessages state) (Seq.|> msg)
       logDebug $ "Mock consumed message from topic: " <> displayShow qmTopic
       return $ Just (qmTopic, qmValue)
-
 
 processAllMessages ::
   (HasLogFunc env) =>
@@ -100,10 +91,10 @@ processAllMessages mockConsumer config = do
         Just (topicName, jsonValue) -> do
           case Map.lookup topicName handlerMap of
             Just h -> do
-              logInfo $
-                "Processing message from topic: "
-                  <> displayShow topicName
-              h jsonValue
+              logInfo
+                $ "Processing message from topic: "
+                <> displayShow topicName
+              _ <- h jsonValue
               go handlerMap
             Nothing ->
               logWarn $ "No handler configured for topic: " <> displayShow topicName

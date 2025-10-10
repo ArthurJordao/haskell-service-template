@@ -1,34 +1,30 @@
-module App (
-  App (..),
-  HasKafkaProducerHandle (..),
-  HasLogContext (..),
-  initializeApp,
-  runApp,
-  app,
-) where
+module App
+  ( App (..),
+    HasKafkaProducerHandle (..),
+    HasLogContext (..),
+    initializeApp,
+    runApp,
+    app,
+  )
+where
 
 import API
 import Control.Monad.Logger (runStderrLoggingT)
 import qualified Data.Map.Strict as Map
-import Database.Persist.Sql (runMigration, ConnectionPool, runSqlPool)
-import qualified Service.Database as Database
+import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
 import qualified Handlers.Kafka
 import qualified Handlers.Server
-import qualified Service.Kafka as Kafka
-import Service.Kafka (HasKafkaProducer (..))
 import Kafka.Producer (KafkaProducer)
-import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), correlationIdMiddleware, defaultCorrelationId, extractCorrelationId, logInfoC, unCorrelationId)
-import Service.Database (HasDB (..))
 import Models.Account (migrateAll)
-import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import RIO
-import RIO.Text (unpack)
 import Servant
-import Settings (Settings (..))
-import qualified Settings
-import UnliftIO.Async (race_)
-
+import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), correlationIdMiddleware, defaultCorrelationId, extractCorrelationId, logInfoC, unCorrelationId)
+import Service.Database (HasDB (..))
+import qualified Service.Database as Database
+import Service.Kafka (HasKafkaProducer (..))
+import qualified Service.Kafka as Kafka
+import Settings (Settings (..), http)
 
 data App = App
   { appLogFunc :: !LogFunc,
@@ -50,7 +46,7 @@ instance HasCorrelationId App where
 
 instance Handlers.Server.HasConfig App Settings where
   settingsL = lens appSettings (\x y -> x {appSettings = y})
-  http = Settings.http
+  http = http
 
 instance HasDB App where
   dbL = lens db (\x y -> x {db = y})
@@ -61,13 +57,11 @@ class HasKafkaProducerHandle env where
 instance HasKafkaProducerHandle App where
   kafkaProducerL = lens kafkaProducer (\x y -> x {kafkaProducer = y})
 
-
-instance (HasKafkaProducerHandle env, HasLogFunc env, HasCorrelationId env, HasLogContext env) => HasKafkaProducer env where
+instance HasKafkaProducer App where
   produceKafkaMessage topic key value = do
     producer <- view kafkaProducerL
     cid <- view correlationIdL
     Kafka.produceMessageWithCid producer topic key value cid
-
 
 initializeApp :: Settings -> LogFunc -> IO App
 initializeApp settings logFunc = runRIO logFunc $ do
@@ -95,7 +89,6 @@ initializeApp settings logFunc = runRIO logFunc $ do
         kafkaProducer = producer
       }
 
-
 runApp :: App -> IO ()
 runApp env = do
   let settings = appSettings env
@@ -119,19 +112,20 @@ runApp env = do
       logInfoC "Starting Kafka consumer"
       Kafka.consumerLoop consumer consumerCfg
 
-
 type AppContext = '[App]
 
 app :: App -> Application
 app baseEnv = correlationIdMiddleware $ \req ->
-
   let maybeCid = extractCorrelationId req
       cid = fromMaybe (error "CID middleware should always set CID") maybeCid
       cidText = unCorrelationId cid
-      env = baseEnv
-        & correlationIdL .~ cid
-        & logContextL .~ Map.singleton "cid" cidText
-  in serveWithContext api (appContext env) (hoistServerWithContext api (Proxy :: Proxy AppContext) (runRIO env) Handlers.Server.server) req
+      env =
+        baseEnv
+          & correlationIdL
+          .~ cid
+            & logContextL
+          .~ Map.singleton "cid" cidText
+   in serveWithContext api (appContext env) (hoistServerWithContext api (Proxy :: Proxy AppContext) (runRIO env) Handlers.Server.server) req
   where
     api :: Proxy API
     api = Proxy

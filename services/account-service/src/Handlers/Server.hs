@@ -1,21 +1,20 @@
-module Handlers.Server (
-  server,
-  module Service.Server,
-  HasConfig (..),
-) where
+module Handlers.Server
+  ( server,
+    module Service.Server,
+    HasConfig (..),
+  )
+where
 
 import API
 import Database.Persist.Sql (Entity (..), entityVal, fromSqlKey, get, insert, selectList, toSqlKey)
-import Database.Persist.Sqlite (ConnectionPool)
-import Service.Kafka (HasKafkaProducer (..))
-import Service.Server
 import Kafka.Consumer (TopicName (..))
-import Service.CorrelationId (HasLogContext (..), logInfoC)
-import Service.Database (HasDB (..), runSqlPoolWithCid)
-import Models.Account (Account (..), AccountId)
+import Models.Account (AccountId)
 import RIO
 import Servant
-
+import Service.CorrelationId (HasLogContext (..), logInfoC)
+import Service.Database (HasDB (..), runSqlPoolWithCid)
+import Service.Kafka (HasKafkaProducer (..))
+import Service.Server
 
 server :: (HasLogFunc env, HasLogContext env, HasConfig env settings, HasDB env, HasKafkaProducer env) => ServerT API (RIO env)
 server =
@@ -52,21 +51,22 @@ createAccountHandler req = do
   logInfoC $ "Creating account: " <> displayShow (createAccountName req)
   pool <- view dbL
 
-  let newAccount = Account
-        { accountName = createAccountName req
-        , accountEmail = createAccountEmail req
-        }
+  let newAccount =
+        Account
+          { accountName = createAccountName req,
+            accountEmail = createAccountEmail req
+          }
 
   accountId <- runSqlPoolWithCid (insert newAccount) pool
   let accountIdInt :: Int
       accountIdInt = fromIntegral $ fromSqlKey accountId
 
-
-  let event = AccountCreatedEvent
-        { eventAccountId = accountIdInt
-        , eventAccountName = createAccountName req
-        , eventAccountEmail = createAccountEmail req
-        }
+  let event =
+        AccountCreatedEvent
+          { eventAccountId = accountIdInt,
+            eventAccountName = createAccountName req,
+            eventAccountEmail = createAccountEmail req
+          }
 
   produceKafkaMessage (TopicName "account-created") Nothing event
   logInfoC $ "Published account-created event for account ID: " <> displayShow accountIdInt

@@ -1,30 +1,29 @@
-module Service.Kafka (
-  KafkaProducer,
-  KafkaConsumer,
-  ConsumerConfig (..),
-  TopicHandler (..),
-  HasKafkaProducer (..),
-  Settings (..),
-  decoder,
-  startProducer,
-  startConsumer,
-  produceMessage,
-  produceMessageWithCid,
-  consumerLoop,
-) where
+module Service.Kafka
+  ( KafkaProducer,
+    KafkaConsumer,
+    ConsumerConfig (..),
+    TopicHandler (..),
+    HasKafkaProducer (..),
+    Settings (..),
+    decoder,
+    startProducer,
+    startConsumer,
+    produceMessage,
+    produceMessageWithCid,
+    consumerLoop,
+  )
+where
 
-import Data.Aeson (FromJSON, ToJSON, Value, decode, encode)
+import Data.Aeson (ToJSON, Value, decode, encode)
 import qualified Data.Map.Strict as Map
-import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Kafka.Consumer
 import Kafka.Producer hiding (produceMessage)
-import Kafka.Types (KafkaError (..), headersFromList, headersToList)
-import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), generateCorrelationId, appendCorrelationId, logInfoC, logWarnC, logErrorC)
 import RIO
+import qualified RIO.ByteString as BS
 import qualified RIO.ByteString.Lazy as BL
 import RIO.Text (pack)
-import qualified RIO.ByteString as BS
+import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), appendCorrelationId, generateCorrelationId, logErrorC, logInfoC, logWarnC)
 import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 import System.IO.Error (mkIOError, userErrorType)
 
@@ -50,21 +49,18 @@ decoder = do
     Right settings -> return settings
 
 class HasKafkaProducer env where
-  produceKafkaMessage :: ToJSON a => TopicName -> Maybe Text -> a -> RIO env ()
-
+  produceKafkaMessage :: (ToJSON a) => TopicName -> Maybe Text -> a -> RIO env ()
 
 data TopicHandler env = TopicHandler
   { topic :: !TopicName,
     handler :: !(Value -> RIO env ())
   }
 
-
 data ConsumerConfig env = ConsumerConfig
   { brokerAddress :: !Text,
     groupId :: !Text,
     topicHandlers :: ![TopicHandler env]
   }
-
 
 startProducer ::
   (HasLogFunc env) =>
@@ -86,7 +82,6 @@ startProducer brokerAddr = do
       logInfo "Kafka producer created successfully"
       return prod
 
-
 startConsumer ::
   (HasLogFunc env) =>
   ConsumerConfig env ->
@@ -102,9 +97,9 @@ startConsumer config = do
           <> Kafka.Consumer.logLevel KafkaLogInfo
 
   let topicList = map topic (topicHandlers config)
-  let subscription = topics topicList
+  let kafkaSubscription = topics topicList
 
-  consumer <- newConsumer consumerProps subscription
+  consumer <- newConsumer consumerProps kafkaSubscription
   case consumer of
     Left err -> do
       logError $ "Failed to create Kafka consumer: " <> displayShow err
@@ -112,7 +107,6 @@ startConsumer config = do
     Right cons -> do
       logInfo $ "Kafka consumer created successfully, subscribed to topics: " <> displayShow topicList
       return cons
-
 
 produceMessage ::
   (HasLogFunc env) =>
@@ -135,7 +129,6 @@ produceMessage producer topicName key value = do
   case result of
     Left err -> logError $ "Failed to produce message: " <> displayShow err
     Right _ -> logInfo $ "Message produced to topic: " <> displayShow topicName
-
 
 produceMessageWithCid ::
   (HasLogFunc env, HasLogContext env, ToJSON a) =>
@@ -163,7 +156,6 @@ produceMessageWithCid producer topicName key value cid = do
     Left err -> logErrorC $ "Failed to produce message: " <> displayShow err
     Right _ -> logInfoC $ "Message produced to topic: " <> displayShow topicName
 
-
 consumerLoop ::
   (HasLogFunc env, HasCorrelationId env, HasLogContext env) =>
   KafkaConsumer ->
@@ -177,11 +169,12 @@ consumerLoop consumer config = do
     case msg of
       Left (KafkaResponseError RdKafkaRespErrTimedOut) -> pure ()
       Left err -> logError $ "Kafka consumer error: " <> displayShow err
-      Right record@(ConsumerRecord {..}) -> do
+      Right (ConsumerRecord {..}) -> do
         let maybeHeaderCid = lookup "X-Correlation-Id" (headersToList crHeaders)
         baseCid <- case maybeHeaderCid of
-          Just cidBytes | not (BS.null cidBytes) ->
-            return $ CorrelationId $ TE.decodeUtf8 cidBytes
+          Just cidBytes
+            | not (BS.null cidBytes) ->
+                return $ CorrelationId $ TE.decodeUtf8 cidBytes
           _ ->
             generateCorrelationId
 
@@ -189,13 +182,13 @@ consumerLoop consumer config = do
 
         let cidText = unCorrelationId cid
         local (set correlationIdL cid . set logContextL (Map.singleton "cid" cidText)) $ do
-          logInfoC $
-            "Received message from topic: "
-              <> displayShow crTopic
-              <> " partition: "
-              <> displayShow crPartition
-              <> " offset: "
-              <> displayShow crOffset
+          logInfoC
+            $ "Received message from topic: "
+            <> displayShow crTopic
+            <> " partition: "
+            <> displayShow crPartition
+            <> " offset: "
+            <> displayShow crOffset
 
           case Map.lookup crTopic handlerMap of
             Just h -> do

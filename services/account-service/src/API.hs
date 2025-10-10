@@ -12,7 +12,6 @@ data CreateAccountRequest = CreateAccountRequest
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
-
 data AccountCreatedEvent = AccountCreatedEvent
   { eventAccountId :: !Int,
     eventAccountName :: !Text,

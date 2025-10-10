@@ -1,7 +1,8 @@
-module Service.Server (
-  Settings (..),
-  decoder,
-) where
+module Service.Server
+  ( Settings (..),
+    decoder,
+  )
+where
 
 import RIO
 import RIO.Text (pack)

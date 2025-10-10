@@ -1,16 +1,15 @@
-module Handlers.Kafka (
-  module Service.Kafka,
-  consumerConfig,
-  testTopicHandler,
-) where
+module Handlers.Kafka
+  ( module Service.Kafka,
+    consumerConfig,
+    testTopicHandler,
+  )
+where
 
 import Data.Aeson (Value)
-import qualified Service.Kafka as Kafka
-import Service.Kafka
 import Kafka.Consumer (TopicName (..))
-import Service.CorrelationId (HasLogContext (..), logInfoC)
 import RIO
-
+import Service.CorrelationId (HasLogContext (..), logInfoC)
+import Service.Kafka
 
 consumerConfig :: (HasLogFunc env, HasLogContext env) => Settings -> ConsumerConfig env
 consumerConfig kafkaSettings =
@@ -29,11 +28,9 @@ consumerConfig kafkaSettings =
         ]
     }
 
-
 testTopicHandler :: (HasLogFunc env, HasLogContext env) => Value -> RIO env ()
 testTopicHandler jsonValue = do
   logInfoC $ "Processing message from test-topic: " <> displayShow jsonValue
-
 
 accountCreatedHandler :: (HasLogFunc env, HasLogContext env) => Value -> RIO env ()
 accountCreatedHandler jsonValue = do

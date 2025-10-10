@@ -1,12 +1,10 @@
 module KafkaSpec (spec) where
 
 import Data.Aeson (Value (..), decode, encode)
-import qualified Data.Map.Strict as Map
-import Service.Kafka (ConsumerConfig (..), HasKafkaProducer (..), TopicHandler (..))
 import Kafka.Consumer (TopicName (..))
-import Service.Test.Kafka
 import RIO
-import qualified RIO.ByteString.Lazy as BL
+import Service.Kafka (ConsumerConfig (..), HasKafkaProducer (..), TopicHandler (..))
+import Service.Test.Kafka
 import Test.Hspec
 
 -- | Test environment with mock Kafka

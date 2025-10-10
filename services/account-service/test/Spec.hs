@@ -1,29 +1,26 @@
 import API (API, AccountCreatedEvent (..), CreateAccountRequest (..))
-import App (App (..))
-import qualified App
 import Control.Monad.Logger (runStderrLoggingT)
-import Data.Aeson (Value, decode, encode)
+import Data.Aeson (decode, encode)
 import qualified Data.Map.Strict as Map
-import Database.Persist.Sql (runMigration, ConnectionPool, runSqlPool)
-import qualified Service.Database as Database
+import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
 import qualified Handlers.Kafka
 import qualified Handlers.Server
-import Service.Kafka (HasKafkaProducer (..))
 import Kafka.Consumer (TopicName (..))
-import Service.CorrelationId (HasLogContext (..))
 import Models.Account (Account (..), migrateAll)
 import Network.HTTP.Client (RequestBody (..), defaultManagerSettings, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseStatus)
-import Network.HTTP.Types.Status (status200, status201)
+import Network.HTTP.Types.Status (status200)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (testWithApplication)
 import RIO
-import Servant (Proxy (..), hoistServer, serve)
-import qualified RIO.ByteString.Lazy as BL
 import qualified RIO.Seq as Seq
+import Servant (hoistServer, serve)
+import Service.CorrelationId (HasLogContext (..))
+import Service.Database (HasDB (..))
+import qualified Service.Database as Database
+import Service.Kafka (HasKafkaProducer (..))
+import Service.Test.Kafka (MockConsumer (..), MockKafkaState (..), MockProducer (..), QueuedMessage (..), consumedMessages, mockProduceMessage, newMockKafkaState, processAllMessages)
 import Settings (Settings (..))
 import Test.Hspec
-import Service.Test.Kafka (MockConsumer (..), MockKafkaState (..), MockProducer (..), QueuedMessage (..), consumedMessages, mockProduceMessage, newMockKafkaState, processAllMessages)
-import Service.Database (HasDB (..))
 
 -- Test application with mock Kafka
 data TestApp = TestApp
@@ -68,13 +65,14 @@ withTestApp action = do
     pool <- liftIO $ Database.createConnectionPool testSettings.database
     liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
 
-    let testApp = TestApp
-          { testAppLogFunc = logFunc
-          , testAppLogContext = Map.empty
-          , testAppSettings = testSettings
-          , testAppDb = pool
-          , testAppMockKafka = mockKafkaState
-          }
+    let testApp =
+          TestApp
+            { testAppLogFunc = logFunc,
+              testAppLogContext = Map.empty,
+              testAppSettings = testSettings,
+              testAppDb = pool,
+              testAppMockKafka = mockKafkaState
+            }
 
     testWithApplication (pure $ testAppToWai testApp) $ \port' -> action port' testApp
 
@@ -96,17 +94,19 @@ spec = describe "Server" $ do
       manager <- newManager defaultManagerSettings
 
       -- Create account request
-      let createReq = CreateAccountRequest
-            { createAccountName = "John Doe"
-            , createAccountEmail = "john@example.com"
-            }
+      let createReq =
+            CreateAccountRequest
+              { createAccountName = "John Doe",
+                createAccountEmail = "john@example.com"
+              }
 
       initialRequest <- parseRequest ("http://localhost:" <> show port' <> "/accounts")
-      let request = initialRequest
-            { method = "POST"
-            , requestBody = RequestBodyLBS (encode createReq)
-            , requestHeaders = [("Content-Type", "application/json")]
-            }
+      let request =
+            initialRequest
+              { method = "POST",
+                requestBody = RequestBodyLBS (encode createReq),
+                requestHeaders = [("Content-Type", "application/json")]
+              }
 
       response <- httpLbs request manager
       responseStatus response `shouldBe` status200
