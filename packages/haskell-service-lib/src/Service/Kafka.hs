@@ -5,6 +5,7 @@ module Service.Kafka
     TopicHandler (..),
     HasKafkaProducer (..),
     Settings (..),
+    DeadLetterMessage (..),
     decoder,
     startProducer,
     startConsumer,
@@ -15,10 +16,13 @@ module Service.Kafka
 where
 
 import Data.Aeson (ToJSON, Value, decode, encode)
+import qualified Data.Aeson as Aeson
+import Data.Time.Clock (UTCTime, getCurrentTime)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text.Encoding as TE
 import Kafka.Consumer
 import Kafka.Producer hiding (produceMessage)
+import Kafka.Types (Headers)
 import RIO
 import qualified RIO.ByteString as BS
 import qualified RIO.ByteString.Lazy as BL
@@ -29,7 +33,9 @@ import System.IO.Error (mkIOError, userErrorType)
 
 data Settings = Settings
   { kafkaBroker :: !Text,
-    kafkaGroupId :: !Text
+    kafkaGroupId :: !Text,
+    kafkaDeadLetterTopic :: !Text,
+    kafkaMaxRetries :: !Int
   }
   deriving (Show, Eq)
 
@@ -38,6 +44,8 @@ instance FromEnv Settings where
     Settings
       <$> (pack <$> (env "KAFKA_BROKER" .!= "localhost:9092"))
       <*> (pack <$> (env "KAFKA_GROUP_ID" .!= "haskell-service-group"))
+      <*> (pack <$> (env "KAFKA_DEAD_LETTER_TOPIC" .!= "DEADLETTER"))
+      <*> (env "KAFKA_MAX_RETRIES" .!= 3)
 
 decoder :: (HasLogFunc env) => RIO env Settings
 decoder = do
@@ -45,7 +53,7 @@ decoder = do
   case result of
     Left err -> do
       logWarn $ "Failed to decode Kafka settings, using defaults: " <> displayShow err
-      return $ Settings (pack "localhost:9092") (pack "haskell-service-group")
+      return $ Settings (pack "localhost:9092") (pack "haskell-service-group") (pack "DEADLETTER") 3
     Right settings -> return settings
 
 class HasKafkaProducer env where
@@ -59,8 +67,24 @@ data TopicHandler env = TopicHandler
 data ConsumerConfig env = ConsumerConfig
   { brokerAddress :: !Text,
     groupId :: !Text,
-    topicHandlers :: ![TopicHandler env]
+    topicHandlers :: ![TopicHandler env],
+    deadLetterTopic :: !TopicName,
+    maxRetries :: !Int
   }
+
+data DeadLetterMessage = DeadLetterMessage
+  { originalTopic :: !Text,
+    originalMessage :: !Value,
+    originalHeaders :: ![(Text, Text)],
+    errorType :: !Text,
+    errorDetails :: !Text,
+    correlationId :: !Text,
+    timestamp :: !UTCTime,
+    retryCount :: !Int
+  }
+  deriving (Show, Eq, Generic)
+
+instance ToJSON DeadLetterMessage
 
 startProducer ::
   (HasLogFunc env) =>
@@ -156,8 +180,39 @@ produceMessageWithCid producer topicName key value cid = do
     Left err -> logErrorC $ "Failed to produce message: " <> displayShow err
     Right _ -> logInfoC $ "Message produced to topic: " <> displayShow topicName
 
+sendToDeadLetter ::
+  (HasLogFunc env, HasLogContext env, HasKafkaProducer env) =>
+  TopicName ->
+  ByteString ->
+  Headers ->
+  Text ->
+  Text ->
+  CorrelationId ->
+  RIO env ()
+sendToDeadLetter originalTopic messageBytes headers errorType errorDetails cid = do
+  timestamp <- liftIO getCurrentTime
+  let originalMessage = case decode (BL.fromStrict messageBytes) of
+        Just val -> val
+        Nothing -> Aeson.String $ TE.decodeUtf8 messageBytes
+
+      headersList = map (\(k, v) -> (TE.decodeUtf8 k, TE.decodeUtf8 v)) (headersToList headers)
+
+      dlm = DeadLetterMessage
+        { originalTopic = case originalTopic of TopicName t -> t,
+          originalMessage = originalMessage,
+          originalHeaders = headersList,
+          errorType = errorType,
+          errorDetails = errorDetails,
+          correlationId = unCorrelationId cid,
+          timestamp = timestamp,
+          retryCount = 0
+        }
+
+  logErrorC $ "Sending message to dead letter queue: " <> display errorType <> " - " <> display errorDetails
+  produceKafkaMessage (TopicName "DEADLETTER") Nothing dlm
+
 consumerLoop ::
-  (HasLogFunc env, HasCorrelationId env, HasLogContext env) =>
+  (HasLogFunc env, HasCorrelationId env, HasLogContext env, HasKafkaProducer env) =>
   KafkaConsumer ->
   ConsumerConfig env ->
   RIO env ()
@@ -193,12 +248,22 @@ consumerLoop consumer config = do
           case Map.lookup crTopic handlerMap of
             Just h -> do
               case crValue of
-                Nothing -> logWarnC "Received message with no value"
+                Nothing -> do
+                  logWarnC "Received message with no value"
+                  void $ commitAllOffsets OffsetCommit consumer
                 Just valueBytes -> do
                   case decode (BL.fromStrict valueBytes) of
-                    Nothing -> logErrorC "Failed to decode message as JSON"
-                    Just jsonValue -> do
-                      h jsonValue
+                    Nothing -> do
+                      sendToDeadLetter crTopic valueBytes crHeaders "JSON_DECODE_ERROR" "Failed to decode message as JSON" cid
                       void $ commitAllOffsets OffsetCommit consumer
-            Nothing ->
+                    Just jsonValue -> do
+                      result <- tryAny (h jsonValue)
+                      case result of
+                        Left ex -> do
+                          sendToDeadLetter crTopic valueBytes crHeaders "HANDLER_ERROR" (pack $ show ex) cid
+                          void $ commitAllOffsets OffsetCommit consumer
+                        Right _ ->
+                          void $ commitAllOffsets OffsetCommit consumer
+            Nothing -> do
               logWarnC $ "No handler configured for topic: " <> displayShow crTopic
+              void $ commitAllOffsets OffsetCommit consumer

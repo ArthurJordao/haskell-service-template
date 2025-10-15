@@ -71,7 +71,9 @@ spec = describe "Kafka Mock" $ do
                       { topic = TopicName "test-topic",
                         handler = testHandler (producedMessages env)
                       }
-                  ]
+                  ],
+                deadLetterTopic = TopicName "DEADLETTER",
+                maxRetries = 3
               }
 
       -- Produce a message
@@ -101,7 +103,9 @@ spec = describe "Kafka Mock" $ do
                       { topic = TopicName "result-topic",
                         handler = testHandler (producedMessages env)
                       }
-                  ]
+                  ],
+                deadLetterTopic = TopicName "DEADLETTER",
+                maxRetries = 3
               }
 
       -- Produce initial trigger message
@@ -127,7 +131,9 @@ spec = describe "Kafka Mock" $ do
                       { topic = TopicName "test-topic",
                         handler = testHandler (producedMessages env)
                       }
-                  ]
+                  ],
+                deadLetterTopic = TopicName "DEADLETTER",
+                maxRetries = 3
               }
 
       -- Produce multiple messages

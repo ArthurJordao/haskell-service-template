@@ -55,7 +55,7 @@ withTestApp action = do
   let testSettings =
         Settings
           { server = Server.Settings {Server.httpPort = 8080, Server.httpEnvironment = "test"},
-            kafka = KafkaPort.Settings {KafkaPort.kafkaBroker = "localhost:9092", KafkaPort.kafkaGroupId = "test-group"},
+            kafka = KafkaPort.Settings {KafkaPort.kafkaBroker = "localhost:9092", KafkaPort.kafkaGroupId = "test-group", KafkaPort.kafkaDeadLetterTopic = "DEADLETTER", KafkaPort.kafkaMaxRetries = 3},
             database = Database.Settings {Database.dbType = Database.SQLite, Database.dbConnectionString = ":memory:", Database.dbPoolSize = 1, Database.dbAutoMigrate = True}
           }
   logOptions <- logOptionsHandle stderr True

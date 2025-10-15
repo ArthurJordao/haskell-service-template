@@ -65,6 +65,7 @@ library
     , resource-pool
     , rio
     , text
+    , time
     , vault
     , wai
   default-language: Haskell2010
@@ -110,6 +111,7 @@ test-suite haskell-service-lib-test
     , resource-pool
     , rio
     , text
+    , time
     , vault
     , wai
   default-language: Haskell2010

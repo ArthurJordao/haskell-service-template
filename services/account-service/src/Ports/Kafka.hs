@@ -25,7 +25,9 @@ consumerConfig kafkaSettings =
             { topic = TopicName "account-created",
               handler = accountCreatedHandler
             }
-        ]
+        ],
+      deadLetterTopic = TopicName (kafkaDeadLetterTopic kafkaSettings),
+      maxRetries = kafkaMaxRetries kafkaSettings
     }
 
 testTopicHandler :: (HasLogFunc env, HasLogContext env) => Value -> RIO env ()

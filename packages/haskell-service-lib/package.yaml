@@ -29,6 +29,7 @@ dependencies:
 - resource-pool
 - fast-logger
 - envy
+- time
 
 ghc-options:
 - -Wall
