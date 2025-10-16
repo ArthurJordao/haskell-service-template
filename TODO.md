@@ -1396,379 +1396,370 @@ dependencies:
 8. Create Grafana dashboards
 9. Configure alert rules
 
-## AWS Infrastructure with Terraform
+## Local Development Automation
 
-Deploy entire microservices platform to AWS using Infrastructure as Code.
+Automate starting all services with proper environment configuration.
 
 **Goals:**
-- Fully automated infrastructure provisioning
-- Multi-environment support (dev, staging, prod)
-- Secure networking with VPC, security groups
-- Auto-scaling for services
-- Managed databases (RDS PostgreSQL)
-- Managed Kafka (MSK - Managed Streaming for Kafka)
-- Load balancing and service discovery
-- CI/CD integration
-- Monitoring and logging
-- Cost optimization
+- Single command to start all services
+- Automatic environment variable management per service
+- Service dependency ordering (start Kafka/DB first)
+- Hot reload during development
+- Easy cleanup and restart
+- Service health checks
 
-**Architecture:**
+**Implementation Options:**
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        AWS Account                           │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │                    VPC (10.0.0.0/16)                    │ │
-│  │                                                          │ │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │ │
-│  │  │  Public AZ1  │  │  Public AZ2  │  │  Public AZ3  │  │ │
-│  │  │   10.0.1.0/24│  │   10.0.2.0/24│  │   10.0.3.0/24│  │ │
-│  │  │              │  │              │  │              │  │ │
-│  │  │  ALB         │  │              │  │              │  │ │
-│  │  │  NAT GW      │  │  NAT GW      │  │              │  │ │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘  │ │
-│  │                                                          │ │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │ │
-│  │  │ Private AZ1  │  │ Private AZ2  │  │ Private AZ3  │  │ │
-│  │  │  10.0.11.0/24│  │  10.0.12.0/24│  │  10.0.13.0/24│  │ │
-│  │  │              │  │              │  │              │  │ │
-│  │  │  ECS Tasks   │  │  ECS Tasks   │  │  ECS Tasks   │  │ │
-│  │  │  - account   │  │  - account   │  │  - account   │  │ │
-│  │  │  - auth      │  │  - auth      │  │  - auth      │  │ │
-│  │  │  - dlq       │  │  - dlq       │  │  - dlq       │  │ │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘  │ │
-│  │                                                          │ │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │ │
-│  │  │  Data AZ1    │  │  Data AZ2    │  │  Data AZ3    │  │ │
-│  │  │  10.0.21.0/24│  │  10.0.22.0/24│  │  10.0.23.0/24│  │ │
-│  │  │              │  │              │  │              │  │ │
-│  │  │  RDS Primary │  │  RDS Replica │  │  RDS Replica │  │ │
-│  │  │  MSK Broker  │  │  MSK Broker  │  │  MSK Broker  │  │ │
-│  │  │  ElastiCache │  │  ElastiCache │  │              │  │ │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘  │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  External Services:                                          │
-│  - ECR (Container Registry)                                  │
-│  - CloudWatch Logs                                           │
-│  - Secrets Manager                                           │
-│  - Route53 (DNS)                                            │
-│  - S3 (static assets, backups)                              │
-└─────────────────────────────────────────────────────────────┘
-```
+### **Option 1: Make/Task Commands (Simplest)**
 
-**Terraform Structure:**
+```makefile
+# Makefile at repo root
+.PHONY: start stop restart logs clean dev
 
-```
-terraform/
-├── environments/
-│   ├── dev/
-│   │   ├── main.tf
-│   │   ├── terraform.tfvars
-│   │   └── backend.tf
-│   ├── staging/
-│   └── prod/
-├── modules/
-│   ├── vpc/
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
-│   ├── ecs/
-│   │   ├── main.tf
-│   │   ├── service.tf
-│   │   ├── variables.tf
-│   │   └── outputs.tf
-│   ├── rds/
-│   ├── msk/
-│   ├── alb/
-│   ├── security-groups/
-│   └── iam/
-└── global/
-    ├── ecr.tf
-    ├── route53.tf
-    └── s3.tf
+# Start all infrastructure
+infra-start:
+	@echo "Starting Kafka..."
+	podman start kafka-container || podman run -d --name kafka-container \
+		-p 9092:9092 apache/kafka:latest
+	@echo "Waiting for Kafka to be ready..."
+	@sleep 5
+	@echo "Infrastructure ready!"
+
+# Start account service
+account-service:
+	@echo "Starting account-service..."
+	cd services/account-service && \
+	export PORT=8080 && \
+	export DB_TYPE=sqlite && \
+	export DB_CONNECTION_STRING=":memory:" && \
+	export KAFKA_BROKER=localhost:9092 && \
+	export KAFKA_GROUP_ID=account-service-dev && \
+	stack run
+
+# Start all services in parallel
+dev: infra-start
+	@echo "Starting all services..."
+	@make -j3 account-service auth-service notification-service
+
+# Stop everything
+stop:
+	@echo "Stopping services..."
+	@pkill -f "stack exec" || true
+	@podman stop kafka-container || true
+
+# View logs
+logs:
+	tail -f /tmp/*.log
+
+# Clean and restart
+restart: stop clean dev
+
+clean:
+	rm -f /tmp/*.log
+	rm -f services/*/database.db
 ```
 
-**Key Terraform Modules:**
+**Usage:**
+```bash
+make dev           # Start everything
+make stop          # Stop everything
+make restart       # Clean restart
+make logs          # View logs
+```
 
-1. **VPC Module:**
-   ```hcl
-   module "vpc" {
-     source = "../../modules/vpc"
+### **Option 2: direnv + .envrc (Per-Service Auto-loading)**
 
-     vpc_cidr = "10.0.0.0/16"
-     availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"]
+```bash
+# Install direnv
+brew install direnv
+echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
 
-     public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
-     private_subnet_cidrs = ["10.0.11.0/24", "10.0.12.0/24", "10.0.13.0/24"]
-     data_subnet_cidrs    = ["10.0.21.0/24", "10.0.22.0/24", "10.0.23.0/24"]
+# services/account-service/.envrc
+export PORT=8080
+export DB_TYPE=sqlite
+export DB_CONNECTION_STRING=":memory:"
+export KAFKA_BROKER=localhost:9092
+export KAFKA_GROUP_ID=account-service-dev
+export KAFKA_DEAD_LETTER_TOPIC=DEADLETTER
+export KAFKA_MAX_RETRIES=3
 
-     enable_nat_gateway = true
-     single_nat_gateway = false  # One per AZ for HA
+# Auto-loads when you cd into directory!
+direnv allow
 
-     tags = {
-       Environment = var.environment
-       Project     = "haskell-services"
-     }
-   }
-   ```
+# services/auth-service/.envrc
+export PORT=8081
+export DB_TYPE=sqlite
+export DB_CONNECTION_STRING="auth.db"
+export KAFKA_BROKER=localhost:9092
+export KAFKA_GROUP_ID=auth-service-dev
 
-2. **ECS Cluster & Service:**
-   ```hcl
-   resource "aws_ecs_cluster" "main" {
-     name = "${var.environment}-haskell-services"
+direnv allow
+```
 
-     setting {
-       name  = "containerInsights"
-       value = "enabled"
-     }
-   }
+**Usage:**
+```bash
+cd services/account-service  # Env vars auto-loaded!
+stack run                     # Uses correct env vars
+```
 
-   module "account_service" {
-     source = "../../modules/ecs"
+### **Option 3: Process Manager (Overmind/Foreman)**
 
-     service_name = "account-service"
-     cluster_id   = aws_ecs_cluster.main.id
+```bash
+# Install overmind
+brew install overmind
 
-     container_image = "${var.ecr_url}/account-service:${var.image_tag}"
-     container_port  = 8080
+# Procfile at repo root
+Procfile:
+kafka: ./scripts/start-kafka.sh
+postgres: ./scripts/start-postgres.sh
+account-service: cd services/account-service && stack run
+auth-service: cd services/auth-service && stack run
+notification-service: cd services/notification-service && stack run
 
-     cpu    = 256
-     memory = 512
+# .env at repo root (shared env vars)
+KAFKA_BROKER=localhost:9092
+DB_TYPE=sqlite
 
-     desired_count = 2
-     min_capacity  = 2
-     max_capacity  = 10
+# services/account-service/.env (service-specific)
+PORT=8080
+SERVICE_NAME=account-service
+KAFKA_GROUP_ID=account-service-dev
+```
 
-     environment_variables = {
-       PORT                     = "8080"
-       DB_TYPE                  = "postgres"
-       DB_CONNECTION_STRING     = aws_secretsmanager_secret_version.db_url.secret_string
-       KAFKA_BROKER             = aws_msk_cluster.main.bootstrap_brokers
-       KAFKA_GROUP_ID           = "account-service-${var.environment}"
-       SERVICE_URLS_AUTH        = "http://auth-service.local:8080"
-       SERVICE_URLS_NOTIFICATION = "http://notification-service.local:8080"
-     }
+**Usage:**
+```bash
+overmind start              # Start everything
+overmind connect kafka      # Attach to kafka logs
+overmind restart account-service  # Restart single service
+overmind kill               # Stop everything
+```
 
-     health_check_path = "/status"
+### **Option 4: Custom Script (Most Flexible)**
 
-     vpc_id          = module.vpc.vpc_id
-     private_subnets = module.vpc.private_subnet_ids
+```bash
+#!/bin/bash
+# scripts/dev.sh
 
-     target_group_arn = module.alb.target_groups["account-service"].arn
-   }
-   ```
+set -e
 
-3. **RDS PostgreSQL:**
-   ```hcl
-   module "rds" {
-     source = "../../modules/rds"
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
-     identifier = "${var.environment}-haskell-services"
+log() { echo -e "${GREEN}[DEV]${NC} $1"; }
+warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-     engine         = "postgres"
-     engine_version = "15.4"
-     instance_class = "db.t3.medium"
+# Cleanup function
+cleanup() {
+  log "Stopping services..."
+  pkill -f "stack exec" || true
+  podman stop kafka-container postgres-container 2>/dev/null || true
+  exit 0
+}
 
-     allocated_storage     = 100
-     max_allocated_storage = 1000
-     storage_encrypted     = true
+trap cleanup SIGINT SIGTERM
 
-     multi_az = var.environment == "prod" ? true : false
+# Start infrastructure
+start_infra() {
+  log "Starting Kafka..."
+  if ! podman ps | grep -q kafka-container; then
+    podman start kafka-container 2>/dev/null || \
+    podman run -d --name kafka-container -p 9092:9092 apache/kafka:latest
+  fi
 
-     database_name = "services"
-     master_username = "admin"
-     # Password stored in Secrets Manager
+  log "Starting PostgreSQL..."
+  if ! podman ps | grep -q postgres-container; then
+    podman start postgres-container 2>/dev/null || \
+    podman run -d --name postgres-container \
+      -e POSTGRES_PASSWORD=dev \
+      -p 5432:5432 postgres:15
+  fi
 
-     vpc_id          = module.vpc.vpc_id
-     subnet_ids      = module.vpc.data_subnet_ids
-     security_groups = [aws_security_group.rds.id]
+  log "Waiting for services to be ready..."
+  sleep 5
+}
 
-     backup_retention_period = 7
-     backup_window          = "03:00-04:00"
-     maintenance_window     = "sun:04:00-sun:05:00"
+# Start a service with env vars
+start_service() {
+  local service_name=$1
+  local port=$2
 
-     enabled_cloudwatch_logs_exports = ["postgresql", "upgrade"]
-   }
-   ```
+  log "Starting ${service_name} on port ${port}..."
 
-4. **MSK (Managed Kafka):**
-   ```hcl
-   resource "aws_msk_cluster" "main" {
-     cluster_name           = "${var.environment}-haskell-services"
-     kafka_version          = "3.5.1"
-     number_of_broker_nodes = 3
+  cd services/${service_name}
 
-     broker_node_group_info {
-       instance_type   = "kafka.t3.small"
-       client_subnets  = module.vpc.private_subnet_ids
-       security_groups = [aws_security_group.msk.id]
+  # Service-specific env vars
+  export PORT=${port}
+  export SERVICE_NAME=${service_name}
+  export KAFKA_BROKER=localhost:9092
+  export KAFKA_GROUP_ID=${service_name}-dev
+  export DB_TYPE=sqlite
+  export DB_CONNECTION_STRING=":memory:"
 
-       storage_info {
-         ebs_storage_info {
-           volume_size = 100
-         }
-       }
-     }
+  # Start in background, log to file
+  stack run > /tmp/${service_name}.log 2>&1 &
+  local pid=$!
 
-     encryption_info {
-       encryption_in_transit {
-         client_broker = "TLS"
-         in_cluster    = true
-       }
-     }
+  log "${service_name} started (PID: ${pid})"
 
-     logging_info {
-       broker_logs {
-         cloudwatch_logs {
-           enabled   = true
-           log_group = aws_cloudwatch_log_group.msk.name
-         }
-       }
-     }
-   }
-   ```
+  cd ../..
+}
 
-5. **Application Load Balancer:**
-   ```hcl
-   resource "aws_lb" "main" {
-     name               = "${var.environment}-haskell-alb"
-     internal           = false
-     load_balancer_type = "application"
-     security_groups    = [aws_security_group.alb.id]
-     subnets           = module.vpc.public_subnet_ids
+# Health check
+health_check() {
+  local service=$1
+  local port=$2
+  local max_attempts=30
 
-     enable_deletion_protection = var.environment == "prod" ? true : false
-   }
+  log "Checking ${service} health..."
 
-   resource "aws_lb_listener" "https" {
-     load_balancer_arn = aws_lb.main.arn
-     port              = "443"
-     protocol          = "HTTPS"
-     ssl_policy        = "ELBSecurityPolicy-TLS-1-2-2017-01"
-     certificate_arn   = aws_acm_certificate.main.arn
+  for i in $(seq 1 ${max_attempts}); do
+    if curl -s http://localhost:${port}/status > /dev/null 2>&1; then
+      log "${service} is healthy!"
+      return 0
+    fi
+    sleep 1
+  done
 
-     default_action {
-       type = "forward"
-       target_group_arn = aws_lb_target_group.default.arn
-     }
-   }
+  error "${service} failed health check"
+  return 1
+}
 
-   # Path-based routing
-   resource "aws_lb_listener_rule" "account_service" {
-     listener_arn = aws_lb_listener.https.arn
+# Main
+main() {
+  log "Starting development environment..."
 
-     action {
-       type             = "forward"
-       target_group_arn = aws_lb_target_group.account_service.arn
-     }
+  start_infra
 
-     condition {
-       path_pattern {
-         values = ["/accounts*"]
-       }
-     }
-   }
-   ```
+  start_service "account-service" 8080
+  start_service "auth-service" 8081
+  start_service "notification-service" 8082
 
-6. **Auto Scaling:**
-   ```hcl
-   resource "aws_appautoscaling_target" "ecs_target" {
-     max_capacity       = var.max_capacity
-     min_capacity       = var.min_capacity
-     resource_id        = "service/${var.cluster_name}/${var.service_name}"
-     scalable_dimension = "ecs:service:DesiredCount"
-     service_namespace  = "ecs"
-   }
+  sleep 5
 
-   # CPU-based scaling
-   resource "aws_appautoscaling_policy" "cpu" {
-     name               = "${var.service_name}-cpu-autoscaling"
-     policy_type        = "TargetTrackingScaling"
-     resource_id        = aws_appautoscaling_target.ecs_target.resource_id
-     scalable_dimension = aws_appautoscaling_target.ecs_target.scalable_dimension
-     service_namespace  = aws_appautoscaling_target.ecs_target.service_namespace
+  health_check "account-service" 8080
+  health_check "auth-service" 8081
+  health_check "notification-service" 8082
 
-     target_tracking_scaling_policy_configuration {
-       predefined_metric_specification {
-         predefined_metric_type = "ECSServiceAverageCPUUtilization"
-       }
-       target_value = 70.0
-     }
-   }
-   ```
+  log "All services running! Logs in /tmp/*.log"
+  log "Press Ctrl+C to stop"
 
-7. **Secrets Management:**
-   ```hcl
-   resource "aws_secretsmanager_secret" "db_password" {
-     name = "${var.environment}/haskell-services/db-password"
+  # Keep script running
+  wait
+}
 
-     rotation_rules {
-       automatically_after_days = 90
-     }
-   }
+main
+```
 
-   resource "aws_secretsmanager_secret" "service_credentials" {
-     name = "${var.environment}/haskell-services/service-credentials"
-   }
-   ```
+**Usage:**
+```bash
+chmod +x scripts/dev.sh
+./scripts/dev.sh
 
-**CI/CD Integration:**
+# In another terminal
+tail -f /tmp/account-service.log
+curl http://localhost:8080/status
+```
+
+### **Option 5: Docker Compose (Alternative)**
 
 ```yaml
-# .github/workflows/deploy.yml
-name: Deploy to AWS
+# docker-compose.yml
+version: '3.8'
 
-on:
-  push:
-    branches: [main]
+services:
+  kafka:
+    image: apache/kafka:latest
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--list", "--bootstrap-server", "localhost:9092"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+  account-service:
+    build: ./services/account-service
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      DB_TYPE: postgres
+      DB_CONNECTION_STRING: postgresql://postgres:dev@postgres:5432/services
+      KAFKA_BROKER: kafka:9092
+      KAFKA_GROUP_ID: account-service-dev
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_started
+    volumes:
+      - ./services/account-service:/app  # Hot reload
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Build and push account-service
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          cd services/account-service
-          docker build -t $ECR_REGISTRY/account-service:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/account-service:$IMAGE_TAG
-
-      - name: Deploy with Terraform
-        run: |
-          cd terraform/environments/prod
-          terraform init
-          terraform apply -var="image_tag=${{ github.sha }}" -auto-approve
+volumes:
+  postgres-data:
 ```
 
-**Cost Optimization:**
-- Use Spot instances for non-critical workloads
-- Enable RDS storage autoscaling
-- Use S3 lifecycle policies for logs
-- Schedule non-prod environments to shut down after hours
-- Use AWS Cost Explorer and budgets
+**Usage:**
+```bash
+docker-compose up          # Start all
+docker-compose up -d       # Start in background
+docker-compose logs -f     # Follow logs
+docker-compose restart account-service  # Restart one service
+docker-compose down        # Stop all
+```
 
-**Monitoring:**
-- CloudWatch Logs for all services
-- CloudWatch Metrics for infrastructure
-- X-Ray for distributed tracing
-- SNS alerts for critical issues
+### **Recommended Approach: Combine Multiple**
+
+```bash
+# Use direnv for per-service env vars
+# Use Makefile for common commands
+# Use custom script for orchestration
+
+# Makefile
+include services/account-service/.env
+export
+
+dev:
+	./scripts/dev.sh
+
+test:
+	cd services/account-service && stack test
+
+build:
+	stack build --fast
+
+format:
+	find . -name "*.hs" -exec ormolu --mode inplace {} \;
+```
+
+**Benefits:**
+- No manual env var management
+- One command to start everything
+- Proper service ordering
+- Easy to restart individual services
+- Logs easily accessible
+- Works with existing Stack setup
+
+**Implementation Steps:**
+1. Choose approach (recommend Makefile + direnv)
+2. Create .envrc files for each service
+3. Create Makefile with common commands
+4. Create start-infra script for Kafka/DB
+5. Add health check endpoints
+6. Document in README
 
 ## Frontend Monorepo with Server-Side Rendering
 
