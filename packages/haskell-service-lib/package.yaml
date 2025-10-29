@@ -30,6 +30,10 @@ dependencies:
 - fast-logger
 - envy
 - time
+- http-client
+- http-client-tls
+- http-types
+- bytestring
 
 ghc-options:
 - -Wall
@@ -64,6 +68,8 @@ library:
     - Service.CorrelationId
     - Service.Database
     - Service.Server
+    - Service.HttpClient
+    - Service.Test.HttpClient
 
 tests:
   haskell-service-lib-test:

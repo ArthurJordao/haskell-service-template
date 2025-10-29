@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 import Ports.Server (API, AccountCreatedEvent (..), CreateAccountRequest (..))
 import Control.Monad.Logger (runStderrLoggingT)
 import Data.Aeson (decode, encode)
@@ -12,23 +14,35 @@ import Network.HTTP.Types.Status (status200)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (testWithApplication)
 import RIO
+import RIO.Text (pack)
+import qualified RIO.Text as T
 import qualified RIO.Seq as Seq
-import Servant (hoistServer, serve)
+import Servant (err500, errBody, hoistServer, serve)
+import Servant.Server.Generic (AsServerT)
 import Service.CorrelationId (HasLogContext (..))
 import Service.Database (HasDB (..))
 import qualified Service.Database as Database
 import Service.Kafka (HasKafkaProducer (..))
+import Service.HttpClient (HttpClient, HasHttpClient (..), HttpError (..))
+import qualified Service.HttpClient as HttpClient
+import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), defaultCorrelationId, logInfoC, unCorrelationId)
+import qualified Data.Text.Encoding as TE
 import Service.Test.Kafka (MockConsumer (..), MockKafkaState (..), MockProducer (..), QueuedMessage (..), consumedMessages, mockProduceMessage, newMockKafkaState, processAllMessages)
+import Service.Test.HttpClient (MockHttpState, MockRequest (..), assertRequestMade, mockResponse, newMockHttpState, getRequests)
+import qualified Service.Test.HttpClient as MockHttp
 import Settings (Settings (..))
 import Test.Hspec
 
--- Test application with mock Kafka
+-- Test application with mock Kafka and mock HTTP
 data TestApp = TestApp
   { testAppLogFunc :: !LogFunc,
     testAppLogContext :: !(Map Text Text),
     testAppSettings :: !Settings,
+    testAppCorrelationId :: !CorrelationId,
     testAppDb :: !ConnectionPool,
-    testAppMockKafka :: !MockKafkaState
+    testAppMockKafka :: !MockKafkaState,
+    testAppHttpClient :: !HttpClient,
+    testAppMockHttp :: !MockHttpState
   }
 
 instance HasLogFunc TestApp where
@@ -36,6 +50,9 @@ instance HasLogFunc TestApp where
 
 instance HasLogContext TestApp where
   logContextL = lens testAppLogContext (\x y -> x {testAppLogContext = y})
+
+instance HasCorrelationId TestApp where
+  correlationIdL = lens testAppCorrelationId (\x y -> x {testAppCorrelationId = y})
 
 instance Server.HasConfig TestApp Settings where
   settingsL = lens testAppSettings (\x y -> x {testAppSettings = y})
@@ -50,6 +67,42 @@ instance {-# OVERLAPPING #-} HasKafkaProducer TestApp where
     let producer = MockProducer state
     mockProduceMessage producer topic key value
 
+-- Use a custom HTTP client implementation that intercepts calls
+-- We can't use overlapping instances for HasHttpClient easily, so we'll
+-- need to modify the handler to allow injection of mock HTTP calls
+instance HasHttpClient TestApp where
+  httpClientL = lens testAppHttpClient (\x y -> x {testAppHttpClient = y})
+
+-- Helper to get mock HTTP state
+class HasMockHttp env where
+  mockHttpL :: Lens' env MockHttpState
+
+instance HasMockHttp TestApp where
+  mockHttpL = lens testAppMockHttp (\x y -> x {testAppMockHttp = y})
+
+-- Test-specific server routes that use mock HTTP
+testExternalPostHandler :: (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasMockHttp env) => Int -> RIO env Server.ExternalPost
+testExternalPostHandler postId = do
+  logInfoC $ "Fetching external post with ID: " <> displayShow postId
+  mockState <- view mockHttpL
+  cid <- view correlationIdL
+  let url = "https://jsonplaceholder.typicode.com/posts/" <> pack (show postId)
+      cidHeader = ("X-Correlation-Id", TE.encodeUtf8 $ unCorrelationId cid)
+  result <- MockHttp.mockCallServiceGet mockState url [cidHeader]
+  case result of
+    Left err -> do
+      logInfoC $ "Failed to fetch external post: " <> displayShow err
+      throwM err500 {errBody = "Failed to fetch external post"}
+    Right post -> do
+      logInfoC $ "Successfully fetched external post: " <> displayShow (Server.title post)
+      return post
+
+-- Test server with mock HTTP handler - we reuse most of the real server but override the external post handler
+testServer :: (HasLogFunc env, HasLogContext env, HasCorrelationId env, Server.HasConfig env Settings, HasDB env, HasKafkaProducer env, HasHttpClient env, HasMockHttp env) => Server.Routes (AsServerT (RIO env))
+testServer =
+  let realServer = Server.server
+   in realServer {Server.getExternalPost = testExternalPostHandler}
+
 withTestApp :: (Int -> TestApp -> IO ()) -> IO ()
 withTestApp action = do
   let testSettings =
@@ -59,25 +112,30 @@ withTestApp action = do
             database = Database.Settings {Database.dbType = Database.SQLite, Database.dbConnectionString = ":memory:", Database.dbPoolSize = 1, Database.dbAutoMigrate = True}
           }
   logOptions <- logOptionsHandle stderr True
-  withLogFunc logOptions $ \logFunc -> do
-    -- Setup mock Kafka and real database
-    mockKafkaState <- newMockKafkaState
+  withLogFunc logOptions $ \logFunc -> runRIO logFunc $ do
+    -- Setup mock Kafka, real database, HTTP client, and mock HTTP state
+    mockKafkaState <- liftIO newMockKafkaState
+    mockHttpState <- liftIO newMockHttpState
     pool <- liftIO $ Database.createConnectionPool testSettings.database
     liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
+    httpClient <- HttpClient.initHttpClient
 
     let testApp =
           TestApp
             { testAppLogFunc = logFunc,
               testAppLogContext = Map.empty,
               testAppSettings = testSettings,
+              testAppCorrelationId = defaultCorrelationId,
               testAppDb = pool,
-              testAppMockKafka = mockKafkaState
+              testAppMockKafka = mockKafkaState,
+              testAppHttpClient = httpClient,
+              testAppMockHttp = mockHttpState
             }
 
-    testWithApplication (pure $ testAppToWai testApp) $ \port' -> action port' testApp
+    liftIO $ testWithApplication (pure $ testAppToWai testApp) $ \port' -> action port' testApp
 
 testAppToWai :: TestApp -> Application
-testAppToWai env = serve (Proxy @API) (hoistServer (Proxy @API) (runRIO env) Server.server)
+testAppToWai env = serve (Proxy @Server.API) (hoistServer (Proxy @Server.API) (runRIO env) testServer)
 
 spec :: Spec
 spec = describe "Server" $ do
@@ -154,6 +212,67 @@ spec = describe "Server" $ do
       -- Verify the message queue is now empty (all messages processed)
       remainingMessages <- atomically $ readTVar (messageQueue mockState)
       Seq.length remainingMessages `shouldBe` 0
+
+  it "fetch external post via HTTP client (mocked)" $ do
+    withTestApp $ \port' testApp -> do
+      let mockHttpState = testAppMockHttp testApp
+
+      -- Setup mock response for the external API call
+      let mockPost =
+            Server.ExternalPost
+              { Server.userId = 1,
+                Server.id = 1,
+                Server.title = "Mock Post Title",
+                Server.body = "Mock post body content"
+              }
+      mockResponse mockHttpState "GET" "https://jsonplaceholder.typicode.com/posts/1" 200 (encode mockPost)
+
+      manager <- newManager defaultManagerSettings
+
+      -- Call the endpoint that will trigger the HTTP client (but it's mocked)
+      request <- parseRequest ("http://localhost:" <> show port' <> "/external/posts/1")
+      response <- httpLbs request manager
+
+      -- Verify we got a 200 response
+      responseStatus response `shouldBe` status200
+
+      -- Verify the response body contains the mocked data
+      let maybePost = decode @Server.ExternalPost (responseBody response)
+      maybePost `shouldSatisfy` isJust
+
+      case maybePost of
+        Just post -> do
+          Server.id post `shouldBe` 1
+          Server.userId post `shouldBe` 1
+          Server.title post `shouldBe` "Mock Post Title"
+          Server.body post `shouldBe` "Mock post body content"
+        Nothing -> expectationFailure "Failed to decode ExternalPost response"
+
+      -- Get all requests and verify details
+      requests <- getRequests mockHttpState
+
+      -- Debug: print requests if test fails
+      when (Seq.length requests == 0) $
+        expectationFailure "No HTTP requests were recorded in mock"
+
+      Seq.length requests `shouldBe` 1
+
+      -- Verify the actual request details
+      case Seq.viewl requests of
+        req Seq.:< _ -> do
+          mrMethod req `shouldBe` "GET"
+          mrUrl req `shouldBe` "https://jsonplaceholder.typicode.com/posts/1"
+
+      -- Verify the HTTP request was made as expected using assertion helper
+      wasMade <- assertRequestMade mockHttpState "GET" "https://jsonplaceholder.typicode.com/posts/1"
+      wasMade `shouldBe` True
+
+      case Seq.viewl requests of
+        req Seq.:< _ -> do
+          -- Verify correlation ID was included in headers
+          let hasCorrelationId = any (\(name, _) -> name == "X-Correlation-Id") (mrHeaders req)
+          hasCorrelationId `shouldBe` True
+        Seq.EmptyL -> expectationFailure "No requests were recorded"
 
 main :: IO ()
 main = hspec $ do

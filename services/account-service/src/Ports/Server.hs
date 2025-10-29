@@ -4,6 +4,7 @@ module Ports.Server
     Account (..),
     CreateAccountRequest (..),
     AccountCreatedEvent (..),
+    ExternalPost (..),
     server,
     HasConfig (..),
     module Service.Server,
@@ -15,11 +16,13 @@ import Database.Persist.Sql (Entity (..), entityVal, fromSqlKey, get, insert, se
 import Kafka.Consumer (TopicName (..))
 import Models.Account (Account (..), AccountId)
 import RIO
+import RIO.Text (pack)
 import Servant
 import Servant.Server.Generic (AsServerT)
-import Service.CorrelationId (HasLogContext (..), logInfoC)
+import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..), runSqlPoolWithCid)
 import Service.Kafka (HasKafkaProducer (..))
+import Service.HttpClient (HasHttpClient, callServiceGet)
 import Service.Server
 
 -- ============================================================================
@@ -29,6 +32,15 @@ import Service.Server
 data CreateAccountRequest = CreateAccountRequest
   { createAccountName :: !Text,
     createAccountEmail :: !Text
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+data ExternalPost = ExternalPost
+  { userId :: !Int,
+    id :: !Int,
+    title :: !Text,
+    body :: !Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
@@ -63,7 +75,14 @@ data Routes route = Routes
         :- Summary "Create a new account"
           :> "accounts"
           :> ReqBody '[JSON] CreateAccountRequest
-          :> Post '[JSON] Account
+          :> Post '[JSON] Account,
+    getExternalPost ::
+      route
+        :- Summary "Example: Fetch external post via HTTP client"
+          :> "external"
+          :> "posts"
+          :> Capture "id" Int
+          :> Get '[JSON] ExternalPost
   }
   deriving stock (Generic)
 
@@ -73,13 +92,14 @@ type API = NamedRoutes Routes
 -- Server Implementation
 -- ============================================================================
 
-server :: (HasLogFunc env, HasLogContext env, HasConfig env settings, HasDB env, HasKafkaProducer env) => Routes (AsServerT (RIO env))
+server :: (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasConfig env settings, HasDB env, HasKafkaProducer env, HasHttpClient env) => Routes (AsServerT (RIO env))
 server =
   Routes
     { status = statusHandler,
       getAccounts = accountsHandler,
       getAccountById = accountByIdHandler,
-      createAccount = createAccountHandler
+      createAccount = createAccountHandler,
+      getExternalPost = externalPostHandler
     }
 
 statusHandler :: forall env settings. (HasLogFunc env, HasLogContext env, HasConfig env settings) => RIO env Text
@@ -131,6 +151,19 @@ createAccountHandler req = do
   logInfoC $ "Published account-created event for account ID: " <> displayShow accountIdInt
 
   return newAccount
+
+externalPostHandler :: (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasHttpClient env) => Int -> RIO env ExternalPost
+externalPostHandler postId = do
+  logInfoC $ "Fetching external post with ID: " <> displayShow postId
+  let url = "https://jsonplaceholder.typicode.com/posts/" <> pack (show postId)
+  result <- callServiceGet url []
+  case result of
+    Left err -> do
+      logInfoC $ "Failed to fetch external post: " <> displayShow err
+      throwM err500 {errBody = "Failed to fetch external post"}
+    Right post -> do
+      logInfoC $ "Successfully fetched external post: " <> displayShow (title post)
+      return post
 
 class HasConfig env settings | env -> settings where
   settingsL :: Lens' env settings

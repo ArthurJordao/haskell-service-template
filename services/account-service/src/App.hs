@@ -23,6 +23,8 @@ import Service.Database (HasDB (..))
 import qualified Service.Database as Database
 import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
+import Service.HttpClient (HttpClient, HasHttpClient (..))
+import qualified Service.HttpClient as HttpClient
 import Settings (Settings (..), server)
 
 data App = App
@@ -31,7 +33,8 @@ data App = App
     appSettings :: !Settings,
     appCorrelationId :: !CorrelationId,
     db :: !ConnectionPool,
-    kafkaProducer :: !KafkaProducer
+    kafkaProducer :: !KafkaProducer,
+    httpClient :: !HttpClient
   }
 
 instance HasLogFunc App where
@@ -62,6 +65,9 @@ instance HasKafkaProducer App where
     cid <- view correlationIdL
     Kafka.produceMessageWithCid producer topic key value cid
 
+instance HasHttpClient App where
+  httpClientL = lens httpClient (\x y -> x {httpClient = y})
+
 initializeApp :: Settings -> LogFunc -> IO App
 initializeApp settings logFunc = runRIO logFunc $ do
   let dbSettings = database settings
@@ -74,6 +80,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
     liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
 
   producer <- Kafka.startProducer (KafkaPort.kafkaBroker kafkaSettings)
+  client <- HttpClient.initHttpClient
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
@@ -85,7 +92,8 @@ initializeApp settings logFunc = runRIO logFunc $ do
         appSettings = settings,
         appCorrelationId = initCid,
         db = pool,
-        kafkaProducer = producer
+        kafkaProducer = producer,
+        httpClient = client
       }
 
 runApp :: App -> IO ()

@@ -30,6 +30,8 @@ library
       Service.CorrelationId
       Service.Database
       Service.Server
+      Service.HttpClient
+      Service.Test.HttpClient
   other-modules:
       Paths_haskell_service_lib
   autogen-modules:
@@ -53,9 +55,13 @@ library
   build-depends:
       aeson
     , base >=4.7 && <5
+    , bytestring
     , containers
     , envy
     , fast-logger
+    , http-client
+    , http-client-tls
+    , http-types
     , hw-kafka-client
     , monad-logger
     , persistent
@@ -97,11 +103,15 @@ test-suite haskell-service-lib-test
   build-depends:
       aeson
     , base >=4.7 && <5
+    , bytestring
     , containers
     , envy
     , fast-logger
     , haskell-service-lib
     , hspec
+    , http-client
+    , http-client-tls
+    , http-types
     , hw-kafka-client
     , monad-logger
     , persistent
