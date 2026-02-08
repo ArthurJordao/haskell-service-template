@@ -1,0 +1,285 @@
+cabal-version: 2.2
+
+-- This file has been generated from package.yaml by hpack version 0.37.0.
+--
+-- see: https://github.com/sol/hpack
+
+name:           dead-letter-queue
+version:        0.1.0.0
+description:    Dead letter queue service for managing failed messages with replay capabilities
+homepage:       https://github.com/githubuser/dead-letter-queue#readme
+bug-reports:    https://github.com/githubuser/dead-letter-queue/issues
+author:         Author name here
+maintainer:     example@example.com
+copyright:      2024 Author name here
+license:        BSD-3-Clause
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/githubuser/dead-letter-queue
+
+library
+  exposed-modules:
+      App
+      Lib
+      Models.DeadLetter
+      Ports.Kafka
+      Ports.Server
+      Settings
+  other-modules:
+      Paths_dead_letter_queue
+  autogen-modules:
+      Paths_dead_letter_queue
+  hs-source-dirs:
+      src
+  default-extensions:
+      LambdaCase
+      OverloadedRecordDot
+      OverloadedStrings
+      NoImplicitPrelude
+      BangPatterns
+      BinaryLiterals
+      DeriveGeneric
+      ScopedTypeVariables
+      DataKinds
+      TypeOperators
+      RecordWildCards
+      FunctionalDependencies
+      AllowAmbiguousTypes
+      TypeApplications
+      FlexibleInstances
+      UndecidableInstances
+      DerivingStrategies
+      DeriveAnyClass
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      aeson
+    , aeson-pretty
+    , attoparsec
+    , attoparsec-binary
+    , base >=4.7 && <5
+    , conduit
+    , conduit-extra
+    , containers
+    , envy
+    , esqueleto
+    , fast-logger
+    , haskell-service-lib
+    , hspec
+    , http-client
+    , http-types
+    , hw-kafka-client
+    , monad-logger
+    , persistent
+    , persistent-sqlite
+    , random
+    , resource-pool
+    , rio
+    , servant
+    , servant-client
+    , servant-server
+    , text
+    , time
+    , transformers
+    , unliftio
+    , vault
+    , wai
+    , warp
+  default-language: Haskell2010
+
+executable dead-letter-queue-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_dead_letter_queue
+  autogen-modules:
+      Paths_dead_letter_queue
+  hs-source-dirs:
+      app
+  default-extensions:
+      LambdaCase
+      OverloadedRecordDot
+      OverloadedStrings
+      NoImplicitPrelude
+      BangPatterns
+      BinaryLiterals
+      DeriveGeneric
+      ScopedTypeVariables
+      DataKinds
+      TypeOperators
+      RecordWildCards
+      FunctionalDependencies
+      AllowAmbiguousTypes
+      TypeApplications
+      FlexibleInstances
+      UndecidableInstances
+      DerivingStrategies
+      DeriveAnyClass
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , aeson-pretty
+    , attoparsec
+    , attoparsec-binary
+    , base >=4.7 && <5
+    , conduit
+    , conduit-extra
+    , containers
+    , dead-letter-queue
+    , envy
+    , esqueleto
+    , fast-logger
+    , haskell-service-lib
+    , hspec
+    , http-client
+    , http-types
+    , hw-kafka-client
+    , monad-logger
+    , persistent
+    , persistent-sqlite
+    , random
+    , resource-pool
+    , rio
+    , servant
+    , servant-client
+    , servant-server
+    , text
+    , time
+    , transformers
+    , unliftio
+    , vault
+    , wai
+    , warp
+  default-language: Haskell2010
+
+executable dead-letter-queue-migrations
+  main-is: Main.hs
+  other-modules:
+      Paths_dead_letter_queue
+  autogen-modules:
+      Paths_dead_letter_queue
+  hs-source-dirs:
+      migrations-app
+  default-extensions:
+      LambdaCase
+      OverloadedRecordDot
+      OverloadedStrings
+      NoImplicitPrelude
+      BangPatterns
+      BinaryLiterals
+      DeriveGeneric
+      ScopedTypeVariables
+      DataKinds
+      TypeOperators
+      RecordWildCards
+      FunctionalDependencies
+      AllowAmbiguousTypes
+      TypeApplications
+      FlexibleInstances
+      UndecidableInstances
+      DerivingStrategies
+      DeriveAnyClass
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , aeson-pretty
+    , attoparsec
+    , attoparsec-binary
+    , base >=4.7 && <5
+    , conduit
+    , conduit-extra
+    , containers
+    , dead-letter-queue
+    , envy
+    , esqueleto
+    , fast-logger
+    , haskell-service-lib
+    , hspec
+    , http-client
+    , http-types
+    , hw-kafka-client
+    , monad-logger
+    , persistent
+    , persistent-sqlite
+    , random
+    , resource-pool
+    , rio
+    , servant
+    , servant-client
+    , servant-server
+    , text
+    , time
+    , transformers
+    , unliftio
+    , vault
+    , wai
+    , warp
+  default-language: Haskell2010
+
+test-suite dead-letter-queue-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_dead_letter_queue
+  autogen-modules:
+      Paths_dead_letter_queue
+  hs-source-dirs:
+      test
+  default-extensions:
+      LambdaCase
+      OverloadedRecordDot
+      OverloadedStrings
+      NoImplicitPrelude
+      BangPatterns
+      BinaryLiterals
+      DeriveGeneric
+      ScopedTypeVariables
+      DataKinds
+      TypeOperators
+      RecordWildCards
+      FunctionalDependencies
+      AllowAmbiguousTypes
+      TypeApplications
+      FlexibleInstances
+      UndecidableInstances
+      DerivingStrategies
+      DeriveAnyClass
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , aeson-pretty
+    , attoparsec
+    , attoparsec-binary
+    , base >=4.7 && <5
+    , conduit
+    , conduit-extra
+    , containers
+    , dead-letter-queue
+    , envy
+    , esqueleto
+    , fast-logger
+    , haskell-service-lib
+    , hspec
+    , http-client
+    , http-types
+    , hw-kafka-client
+    , monad-logger
+    , persistent
+    , persistent-sqlite
+    , random
+    , resource-pool
+    , rio
+    , servant
+    , servant-client
+    , servant-server
+    , text
+    , time
+    , transformers
+    , unliftio
+    , vault
+    , wai
+    , warp
+  default-language: Haskell2010

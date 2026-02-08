@@ -31,6 +31,7 @@ snapshot:
 #   - wai
 packages:
 - services/account-service
+- services/dead-letter-queue
 - packages/haskell-service-lib
 # Dependency packages to be pulled from upstream that are not in the snapshot.
 # These entries can reference officially published versions as well as
@@ -65,10 +66,12 @@ extra-deps:
 # Extra directories used by Stack for building
 extra-include-dirs:
   - /opt/homebrew/opt/librdkafka/include
-  - /opt/homebrew/opt/postgresql@17/include
+  - /opt/homebrew/opt/libpq/include
 extra-lib-dirs:
   - /opt/homebrew/opt/librdkafka/lib
-  - /opt/homebrew/opt/postgresql@17/lib
+  - /opt/homebrew/opt/libpq/lib
+extra-path:
+  - /opt/homebrew/opt/libpq/bin
 #
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor
