@@ -1,0 +1,112 @@
+name:                dead-letter-queue
+version:             0.1.0.0
+github:              "githubuser/dead-letter-queue"
+license:             BSD-3-Clause
+author:              "Author name here"
+maintainer:          "example@example.com"
+copyright:           "2024 Author name here"
+
+extra-source-files: []
+
+description:         Dead letter queue service for managing failed messages with replay capabilities
+
+dependencies:
+- base >= 4.7 && < 5
+- rio
+- unliftio
+- conduit
+- conduit-extra
+- aeson
+- aeson-pretty
+- attoparsec
+- attoparsec-binary
+- text
+- servant
+- servant-server
+- warp
+- hspec
+- wai
+- servant-client
+- http-client
+- http-types
+- persistent
+- persistent-sqlite
+- esqueleto
+- monad-logger
+- hw-kafka-client
+- containers
+- envy
+- vault
+- random
+- fast-logger
+- resource-pool
+- time
+- transformers
+- haskell-service-lib
+
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+
+default-extensions:
+  - LambdaCase
+  - OverloadedRecordDot
+  - OverloadedStrings
+  - NoImplicitPrelude
+  - BangPatterns
+  - BinaryLiterals
+  - DeriveGeneric
+  - ScopedTypeVariables
+  - DataKinds
+  - TypeOperators
+  - RecordWildCards
+  - FunctionalDependencies
+  - AllowAmbiguousTypes
+  - TypeApplications
+  - FlexibleInstances
+  - UndecidableInstances
+  - DerivingStrategies
+  - DeriveAnyClass
+
+
+library:
+  source-dirs: src
+
+executables:
+  dead-letter-queue-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - dead-letter-queue
+
+  dead-letter-queue-migrations:
+    main:                Main.hs
+    source-dirs:         migrations-app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - dead-letter-queue
+
+tests:
+  dead-letter-queue-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - dead-letter-queue
