@@ -14,9 +14,6 @@ maintainer:     example@example.com
 copyright:      2024 Author name here
 license:        BSD-3-Clause
 build-type:     Simple
-extra-source-files:
-    README.md
-    CHANGELOG.md
 
 source-repository head
   type: git
