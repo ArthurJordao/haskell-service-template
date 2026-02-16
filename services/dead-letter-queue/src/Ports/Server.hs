@@ -22,7 +22,7 @@ import qualified RIO.ByteString.Lazy as BL
 import RIO.Text (pack)
 import Servant
 import Servant.Server.Generic (AsServerT)
-import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC, logErrorC)
+import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), logInfoC, logErrorC)
 import Service.Database (HasDB (..), runSqlPoolWithCid)
 import Service.Kafka (HasKafkaProducer (..))
 import Service.Server
@@ -171,7 +171,7 @@ getDeadLetterHandler dlqId = do
     Nothing -> throwM err404 {errBody = "Dead letter message not found"}
 
 replayMessageHandler ::
-  (HasLogFunc env, HasLogContext env, HasDB env, HasKafkaProducer env) =>
+  (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasDB env, HasKafkaProducer env) =>
   Int64 ->
   RIO env ReplayResult
 replayMessageHandler dlqId = do
@@ -198,7 +198,10 @@ replayMessageHandler dlqId = do
             pool
           return $ ReplayResult dlqId False (Just errMsg)
         Just jsonVal -> do
-          result <- tryAny $ produceKafkaMessage (TopicName $ deadLetterOriginalTopic dl) Nothing jsonVal
+          let originalCid = CorrelationId (deadLetterCorrelationId dl)
+          result <- tryAny $
+            local (set correlationIdL originalCid) $
+              produceKafkaMessage (TopicName $ deadLetterOriginalTopic dl) Nothing jsonVal
           now <- liftIO getCurrentTime
           case result of
             Left ex -> do
@@ -220,11 +223,11 @@ replayMessageHandler dlqId = do
                     ]
                 )
                 pool
-              logInfoC $ "Successfully replayed message " <> displayShow dlqId
+              logInfoC $ "Successfully replayed message " <> displayShow dlqId <> " with original cid: " <> display (deadLetterCorrelationId dl)
               return $ ReplayResult dlqId True Nothing
 
 replayBatchHandler ::
-  (HasLogFunc env, HasLogContext env, HasDB env, HasKafkaProducer env) =>
+  (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasDB env, HasKafkaProducer env) =>
   [Int64] ->
   RIO env [ReplayResult]
 replayBatchHandler ids = do
