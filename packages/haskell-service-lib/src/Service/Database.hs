@@ -17,9 +17,11 @@ import Database.Persist.Postgresql (createPostgresqlPool)
 import Database.Persist.Sql (ConnectionPool, SqlBackend)
 import Database.Persist.SqlBackend.Internal (connLogFunc)
 import Database.Persist.Sqlite (createSqlitePool)
+import Data.Time.Clock (getCurrentTime)
 import RIO
 import RIO.Text (pack, toLower)
 import Service.CorrelationId (HasLogContext (..))
+import Service.Metrics.Optional (OptionalDatabaseMetrics (..))
 import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 import System.Log.FastLogger (fromLogStr)
 
@@ -70,7 +72,8 @@ class HasDB env where
   dbL :: Lens' env ConnectionPool
 
 runSqlPoolWithCid ::
-  (HasLogFunc env, HasLogContext env, MonadUnliftIO m, MonadReader env m) =>
+  forall env m a.
+  (HasLogFunc env, HasLogContext env, OptionalDatabaseMetrics env, MonadUnliftIO m, MonadReader env m) =>
   ReaderT SqlBackend (LoggingT m) a ->
   ConnectionPool ->
   m a
@@ -80,7 +83,9 @@ runSqlPoolWithCid action pool = do
         Just cid -> "[cid=" <> cid <> "] "
         Nothing -> ""
 
-  withRunInIO $ \runInIO ->
+  -- Time the query for automatic metrics
+  start <- liftIO getCurrentTime
+  result <- tryAny $ withRunInIO $ \runInIO ->
     withResource pool $ \backend -> do
       let wrappedLogFunc _loc _source _level msg = do
             let msgText = TE.decodeUtf8With TE.lenientDecode (fromLogStr msg)
@@ -91,3 +96,13 @@ runSqlPoolWithCid action pool = do
 
       runInIO $ runLoggingT (runReaderT action modifiedBackend) $ \_ _ _ _ ->
         pure ()
+
+  end <- liftIO getCurrentTime
+
+  -- Automatically record metrics if available (using ask to get environment)
+  environment <- ask
+  liftIO $ runRIO environment $ recordDatabaseQueryMetrics "query" start end result
+
+  case result of
+    Left err -> throwIO err
+    Right val -> return val

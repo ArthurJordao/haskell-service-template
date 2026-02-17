@@ -18,6 +18,7 @@ import qualified Data.Text.Encoding as TE
 import Service.CorrelationId (HasLogContext (..), logInfoC, logErrorC)
 import Service.Database (HasDB (..), runSqlPoolWithCid)
 import Service.Kafka
+import Service.Metrics.Optional (OptionalDatabaseMetrics)
 
 -- | Incoming dead letter message from Kafka (matches the shared lib's DeadLetterMessage structure)
 data IncomingDeadLetter = IncomingDeadLetter
@@ -44,7 +45,7 @@ instance FromJSON IncomingDeadLetter where
       <*> o Aeson..: "timestamp"
       <*> o Aeson..: "retryCount"
 
-consumerConfig :: (HasLogFunc env, HasLogContext env, HasDB env) => Settings -> ConsumerConfig env
+consumerConfig :: (HasLogFunc env, HasLogContext env, HasDB env, OptionalDatabaseMetrics env) => Settings -> ConsumerConfig env
 consumerConfig kafkaSettings =
   ConsumerConfig
     { brokerAddress = kafkaBroker kafkaSettings,
@@ -63,7 +64,7 @@ consumerConfig kafkaSettings =
 valueToText :: Value -> Text
 valueToText = TE.decodeUtf8 . BL.toStrict . Aeson.encode
 
-deadLetterHandler :: (HasLogFunc env, HasLogContext env, HasDB env) => Value -> RIO env ()
+deadLetterHandler :: (HasLogFunc env, HasLogContext env, HasDB env, OptionalDatabaseMetrics env) => Value -> RIO env ()
 deadLetterHandler jsonValue = do
   logInfoC "Received dead letter message"
   case Aeson.fromJSON jsonValue of

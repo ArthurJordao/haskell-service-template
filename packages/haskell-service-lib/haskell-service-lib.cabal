@@ -32,6 +32,12 @@ library
       Service.Server
       Service.HttpClient
       Service.Test.HttpClient
+      Service.Metrics
+      Service.Metrics.Core
+      Service.Metrics.Http
+      Service.Metrics.Kafka
+      Service.Metrics.Database
+      Service.Metrics.Optional
   other-modules:
       Paths_haskell_service_lib
   autogen-modules:
@@ -49,8 +55,11 @@ library
       DataKinds
       TypeOperators
       FlexibleInstances
+      FlexibleContexts
       RecordWildCards
       TypeApplications
+      AllowAmbiguousTypes
+      UndecidableInstances
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       aeson
@@ -70,6 +79,7 @@ library
     , random
     , resource-pool
     , rio
+    , stm
     , text
     , time
     , vault
@@ -97,8 +107,11 @@ test-suite haskell-service-lib-test
       DataKinds
       TypeOperators
       FlexibleInstances
+      FlexibleContexts
       RecordWildCards
       TypeApplications
+      AllowAmbiguousTypes
+      UndecidableInstances
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
@@ -120,6 +133,7 @@ test-suite haskell-service-lib-test
     , random
     , resource-pool
     , rio
+    , stm
     , text
     , time
     , vault

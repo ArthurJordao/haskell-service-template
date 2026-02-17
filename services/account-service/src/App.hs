@@ -25,6 +25,8 @@ import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
 import Service.HttpClient (HttpClient, HasHttpClient (..))
 import qualified Service.HttpClient as HttpClient
+import Service.Metrics (Metrics, HasMetrics (..), initMetrics, metricsHandler)
+import Service.Metrics.Optional (OptionalDatabaseMetrics, OptionalKafkaMetrics)
 import Settings (Settings (..), server)
 
 data App = App
@@ -34,7 +36,8 @@ data App = App
     appCorrelationId :: !CorrelationId,
     db :: !ConnectionPool,
     kafkaProducer :: !KafkaProducer,
-    httpClient :: !HttpClient
+    httpClient :: !HttpClient,
+    appMetrics :: !Metrics
   }
 
 instance HasLogFunc App where
@@ -68,6 +71,12 @@ instance HasKafkaProducer App where
 instance HasHttpClient App where
   httpClientL = lens httpClient (\x y -> x {httpClient = y})
 
+instance HasMetrics App where
+  metricsL = lens appMetrics (\x y -> x {appMetrics = y})
+
+-- OptionalKafkaMetrics and OptionalDatabaseMetrics instances are provided
+-- automatically via overlapping instances from Service.Metrics
+
 initializeApp :: Settings -> LogFunc -> IO App
 initializeApp settings logFunc = runRIO logFunc $ do
   let dbSettings = database settings
@@ -81,6 +90,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
 
   producer <- Kafka.startProducer (KafkaPort.kafkaBroker kafkaSettings)
   client <- HttpClient.initHttpClient
+  metrics <- liftIO initMetrics
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
@@ -93,7 +103,8 @@ initializeApp settings logFunc = runRIO logFunc $ do
         appCorrelationId = initCid,
         db = pool,
         kafkaProducer = producer,
-        httpClient = client
+        httpClient = client,
+        appMetrics = metrics
       }
 
 runApp :: App -> IO ()

@@ -21,8 +21,10 @@ import Servant
 import Servant.Server.Generic (AsServerT)
 import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..), runSqlPoolWithCid)
+import Service.Metrics.Optional (OptionalDatabaseMetrics)
 import Service.Kafka (HasKafkaProducer (..))
 import Service.HttpClient (HasHttpClient, callServiceGet)
+import Service.Metrics (HasMetrics (..), metricsHandler)
 import Service.Server
 
 -- ============================================================================
@@ -82,7 +84,12 @@ data Routes route = Routes
           :> "external"
           :> "posts"
           :> Capture "id" Int
-          :> Get '[JSON] ExternalPost
+          :> Get '[JSON] ExternalPost,
+    getMetrics ::
+      route
+        :- Summary "Prometheus metrics endpoint"
+          :> "metrics"
+          :> Get '[PlainText] Text
   }
   deriving stock (Generic)
 
@@ -92,14 +99,15 @@ type API = NamedRoutes Routes
 -- Server Implementation
 -- ============================================================================
 
-server :: (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasConfig env settings, HasDB env, HasKafkaProducer env, HasHttpClient env) => Routes (AsServerT (RIO env))
+server :: (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasConfig env settings, HasDB env, HasKafkaProducer env, HasHttpClient env, HasMetrics env, OptionalDatabaseMetrics env) => Routes (AsServerT (RIO env))
 server =
   Routes
     { status = statusHandler,
       getAccounts = accountsHandler,
       getAccountById = accountByIdHandler,
       createAccount = createAccountHandler,
-      getExternalPost = externalPostHandler
+      getExternalPost = externalPostHandler,
+      getMetrics = metricsEndpointHandler
     }
 
 statusHandler :: forall env settings. (HasLogFunc env, HasLogContext env, HasConfig env settings) => RIO env Text
@@ -109,14 +117,14 @@ statusHandler = do
   logInfoC ("Status endpoint called env level" <> displayShow (httpEnvironment serverSettings))
   return "OK"
 
-accountsHandler :: (HasLogFunc env, HasLogContext env, HasDB env) => RIO env [Account]
+accountsHandler :: (HasLogFunc env, HasLogContext env, HasDB env, OptionalDatabaseMetrics env) => RIO env [Account]
 accountsHandler = do
   logInfoC "Accounts endpoint called"
   pool <- view dbL
   accounts <- runSqlPoolWithCid (selectList [] []) pool
   return $ map entityVal accounts
 
-accountByIdHandler :: (HasLogFunc env, HasLogContext env, HasDB env) => Int -> RIO env Account
+accountByIdHandler :: (HasLogFunc env, HasLogContext env, HasDB env, OptionalDatabaseMetrics env) => Int -> RIO env Account
 accountByIdHandler accId = do
   logInfoC $ "Account endpoint called with ID: " <> displayShow accId
   pool <- view dbL
@@ -125,7 +133,7 @@ accountByIdHandler accId = do
     Just account -> return account
     Nothing -> throwM err404 {errBody = "Account not found"}
 
-createAccountHandler :: (HasLogFunc env, HasLogContext env, HasDB env, HasKafkaProducer env) => CreateAccountRequest -> RIO env Account
+createAccountHandler :: (HasLogFunc env, HasLogContext env, HasDB env, HasKafkaProducer env, OptionalDatabaseMetrics env) => CreateAccountRequest -> RIO env Account
 createAccountHandler req = do
   logInfoC $ "Creating account: " <> displayShow (createAccountName req)
   pool <- view dbL
@@ -164,6 +172,11 @@ externalPostHandler postId = do
     Right post -> do
       logInfoC $ "Successfully fetched external post: " <> displayShow (title post)
       return post
+
+metricsEndpointHandler :: (HasMetrics env) => RIO env Text
+metricsEndpointHandler = do
+  metrics <- view metricsL
+  liftIO $ metricsHandler metrics
 
 class HasConfig env settings | env -> settings where
   settingsL :: Lens' env settings
