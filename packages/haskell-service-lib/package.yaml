@@ -34,6 +34,7 @@ dependencies:
 - http-client-tls
 - http-types
 - bytestring
+- stm
 
 ghc-options:
 - -Wall
@@ -57,8 +58,11 @@ default-extensions:
   - DataKinds
   - TypeOperators
   - FlexibleInstances
+  - FlexibleContexts
   - RecordWildCards
   - TypeApplications
+  - AllowAmbiguousTypes
+  - UndecidableInstances
 
 library:
   source-dirs: src
@@ -70,6 +74,12 @@ library:
     - Service.Server
     - Service.HttpClient
     - Service.Test.HttpClient
+    - Service.Metrics
+    - Service.Metrics.Core
+    - Service.Metrics.Http
+    - Service.Metrics.Kafka
+    - Service.Metrics.Database
+    - Service.Metrics.Optional
 
 tests:
   haskell-service-lib-test:

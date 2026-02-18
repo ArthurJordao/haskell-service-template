@@ -46,6 +46,11 @@ extra-deps:
 - postgresql-libpq-0.11.0.0
 - postgresql-libpq-configure-0.11@sha256:019c5d83da0b4dc0b4487e0e868f2eed5efa25e0688f5cfc2ba8191a80e527aa,1309
 
+# Package-specific flags
+flags:
+  hw-kafka-client:
+    examples: false
+
 # Override default flag values for project packages and extra-deps
 # flags: {}
 
@@ -66,12 +71,18 @@ extra-deps:
 # Extra directories used by Stack for building
 extra-include-dirs:
   - /opt/homebrew/opt/librdkafka/include
-  - /opt/homebrew/opt/libpq/include
+  - /opt/homebrew/opt/postgresql@17/include
 extra-lib-dirs:
   - /opt/homebrew/opt/librdkafka/lib
-  - /opt/homebrew/opt/libpq/lib
+  - /opt/homebrew/opt/postgresql@17/lib
+
+# Add PostgreSQL bin directory to PATH so pg_config can be found
 extra-path:
-  - /opt/homebrew/opt/libpq/bin
+  - /opt/homebrew/opt/postgresql@17/bin
+
+# Set PKG_CONFIG_PATH for finding libraries
+ghc-options:
+  "$everything": -optP-Wno-nonportable-include-path
 #
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor

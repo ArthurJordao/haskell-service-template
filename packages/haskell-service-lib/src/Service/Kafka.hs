@@ -26,8 +26,10 @@ import Kafka.Types (Headers)
 import RIO
 import qualified RIO.ByteString as BS
 import qualified RIO.ByteString.Lazy as BL
-import RIO.Text (pack)
+import RIO.Text (pack, unpack)
+import Text.Read (reads)
 import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), appendCorrelationId, generateCorrelationId, logErrorC, logInfoC, logWarnC)
+import Service.Metrics.Optional (OptionalKafkaMetrics (..))
 import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 import System.IO.Error (mkIOError, userErrorType)
 
@@ -212,7 +214,7 @@ sendToDeadLetter originalTopic messageBytes headers errorType errorDetails cid =
   produceKafkaMessage (TopicName "DEADLETTER") Nothing dlm
 
 consumerLoop ::
-  (HasLogFunc env, HasCorrelationId env, HasLogContext env, HasKafkaProducer env) =>
+  (HasLogFunc env, HasCorrelationId env, HasLogContext env, HasKafkaProducer env, OptionalKafkaMetrics env) =>
   KafkaConsumer ->
   ConsumerConfig env ->
   RIO env ()
@@ -257,7 +259,32 @@ consumerLoop consumer config = do
                       sendToDeadLetter crTopic valueBytes crHeaders "JSON_DECODE_ERROR" "Failed to decode message as JSON" cid
                       void $ commitAllOffsets OffsetCommit consumer
                     Just jsonValue -> do
+                      -- Handler execution with automatic metrics collection
+                      let topicText = case crTopic of TopicName t -> t
+                          -- Convert partition to Int by parsing the show output
+                          partitionText = pack $ show crPartition
+                          partitionId = case reads (unpack partitionText) of
+                            [(p, "")] -> p
+                            _ -> 0 -- Default to 0 if parsing fails
+                          -- Convert offset to Int by parsing the show output
+                          offsetText = pack $ show crOffset
+                          currentOffset = case reads (unpack offsetText) of
+                            [(o, "")] -> o
+                            _ -> 0 -- Default to 0 if parsing fails
+                      start <- liftIO getCurrentTime
                       result <- tryAny (h jsonValue)
+                      end <- liftIO getCurrentTime
+
+                      -- Automatically record metrics if available
+                      recordKafkaMessageMetrics topicText start end result
+
+                      -- Record offset metrics
+                      -- Note: We record current offset. High water mark would require
+                      -- querying Kafka metadata which may not be available in all versions.
+                      -- For now, we use current offset + 1 as a proxy for high water mark.
+                      let highWaterMark = currentOffset + 1
+                      recordKafkaOffsetMetrics topicText partitionId currentOffset highWaterMark
+
                       case result of
                         Left ex -> do
                           sendToDeadLetter crTopic valueBytes crHeaders "HANDLER_ERROR" (pack $ show ex) cid
