@@ -20,7 +20,7 @@ import qualified Ports.Consumer as KafkaPort
 import qualified Ports.Server as Server
 import RIO
 import RIO.Text (pack)
-import Servant (hoistServer, serve)
+import Servant (Context (..), ErrorFormatters, hoistServerWithContext, serveWithContext)
 import Service.CorrelationId
   ( CorrelationId (..),
     HasCorrelationId (..),
@@ -130,6 +130,8 @@ runApp env = do
       logInfoC $ "Starting HTTP server on port " <> displayShow (Server.httpPort serverSettings)
       liftIO $ run (Server.httpPort serverSettings) (app appEnv)
 
+type AppContext = '[ErrorFormatters]
+
 app :: App -> Application
 app baseEnv = correlationIdMiddleware $ \req ->
   let maybeCid = extractCorrelationId req
@@ -139,7 +141,10 @@ app baseEnv = correlationIdMiddleware $ \req ->
         baseEnv
           & correlationIdL .~ cid
           & logContextL .~ Map.singleton "cid" cidText
-   in serve (Proxy :: Proxy Server.API) (hoistServer (Proxy :: Proxy Server.API) (runRIO env) Server.server) req
+   in serveWithContext api (Server.jsonErrorFormatters :. EmptyContext) (hoistServerWithContext api (Proxy :: Proxy AppContext) (runRIO env) Server.server) req
+  where
+    api :: Proxy Server.API
+    api = Proxy
 
 -- | Load all .mustache files from the given directory into a cache.
 loadTemplates :: FilePath -> IO (Map Text Template)

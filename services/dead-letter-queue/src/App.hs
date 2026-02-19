@@ -110,7 +110,7 @@ runApp env = do
       logInfoC $ "Starting DLQ HTTP server on port " <> displayShow (Server.httpPort serverSettings)
       liftIO $ run (Server.httpPort serverSettings) (app appEnv)
 
-type AppContext = '[JWTAuthConfig, App]
+type AppContext = '[ErrorFormatters, JWTAuthConfig, App]
 
 app :: App -> Application
 app baseEnv =
@@ -131,4 +131,4 @@ app baseEnv =
     api = Proxy
 
     appContext :: App -> Context AppContext
-    appContext e = appJwtConfig e :. e :. EmptyContext
+    appContext e = Server.jsonErrorFormatters :. appJwtConfig e :. e :. EmptyContext

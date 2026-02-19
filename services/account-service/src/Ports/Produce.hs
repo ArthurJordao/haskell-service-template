@@ -1,3 +1,5 @@
+{-# LANGUAGE NoOverloadedRecordDot #-}
+
 module Ports.Produce
   ( AccountCreatedEvent (..),
     publishAccountCreated,
@@ -5,7 +7,7 @@ module Ports.Produce
   )
 where
 
-import Data.Aeson (FromJSON, ToJSON, object, (.=))
+import Data.Aeson (FromJSON, ToJSON (..), object, (.=))
 import Kafka.Consumer (TopicName (..))
 import RIO
 import Service.Kafka (HasKafkaProducer (..))

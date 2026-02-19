@@ -133,7 +133,7 @@ runApp env = do
       logInfoC $ "Starting HTTP server on port " <> displayShow (Server.httpPort serverSettings)
       liftIO $ run (Server.httpPort serverSettings) (app appEnv)
 
-type AppContext = '[App]
+type AppContext = '[ErrorFormatters, App]
 
 app :: App -> Application
 app baseEnv =
@@ -154,4 +154,4 @@ app baseEnv =
     api = Proxy
 
     appContext :: App -> Context AppContext
-    appContext e = e :. EmptyContext
+    appContext e = Server.jsonErrorFormatters :. e :. EmptyContext

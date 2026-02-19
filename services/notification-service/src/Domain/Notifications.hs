@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE NoOverloadedRecordDot #-}
 
 module Domain.Notifications
   ( Domain,
@@ -11,7 +12,7 @@ module Domain.Notifications
   )
 where
 
-import Data.Aeson (FromJSON, ToJSON, object, withObject, (.=), (.:))
+import Data.Aeson (FromJSON(..), ToJSON(..), object, withObject, (.=), (.:))
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import qualified Data.Map.Strict as Map
