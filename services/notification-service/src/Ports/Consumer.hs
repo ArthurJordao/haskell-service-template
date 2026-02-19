@@ -12,8 +12,6 @@ import RIO
 import Service.CorrelationId (logErrorC)
 import Service.Kafka
 
--- | The Kafka topic this service consumes.
--- Override with your own topic name.
 notificationsTopic :: TopicName
 notificationsTopic = TopicName "notifications"
 

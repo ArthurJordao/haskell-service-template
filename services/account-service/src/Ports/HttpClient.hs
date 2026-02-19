@@ -6,7 +6,7 @@ module Ports.HttpClient
   )
 where
 
-import Data.Aeson (FromJSON, ToJSON, Value)
+import Data.Aeson (FromJSON)
 import RIO
 import RIO.Text (pack)
 import Service.CorrelationId (HasCorrelationId, HasLogContext)

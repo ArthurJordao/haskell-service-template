@@ -7,6 +7,7 @@ where
 import Data.Aeson (Result (..), Value, fromJSON)
 import Domain.Accounts (processUserRegistered)
 import Kafka.Consumer (TopicName (..))
+import Ports.Produce (publishWelcomeNotification)
 import RIO
 import Service.CorrelationId (HasLogContext (..), logInfoC, logWarnC)
 import Service.Database (HasDB (..))
@@ -16,7 +17,8 @@ import Service.Kafka
 consumerConfig ::
   ( HasLogFunc env,
     HasLogContext env,
-    HasDB env
+    HasDB env,
+    HasKafkaProducer env
   ) =>
   Settings ->
   ConsumerConfig env
@@ -47,12 +49,14 @@ accountCreatedHandler jsonValue =
 userRegisteredHandler ::
   ( HasLogFunc env,
     HasLogContext env,
-    HasDB env
+    HasDB env,
+    HasKafkaProducer env
   ) =>
   Value ->
   RIO env ()
 userRegisteredHandler jsonValue =
   case fromJSON @UserRegisteredEvent jsonValue of
     Error e -> logWarnC $ "Invalid user-registered payload: " <> displayShow e
-    Success (UserRegisteredEvent uid email) ->
+    Success (UserRegisteredEvent uid email) -> do
       processUserRegistered uid email
+      publishWelcomeNotification email

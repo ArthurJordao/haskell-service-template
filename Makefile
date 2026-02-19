@@ -1,6 +1,7 @@
 SERVICES := account-service auth-service dead-letter-queue notification-service
+DEV_TARGETS := $(addprefix dev-,$(SERVICES))
 
-.PHONY: infra infra-down build setup generate-keys $(SERVICES) admin-ui-install admin-ui-dev admin-ui-build
+.PHONY: infra infra-down build setup generate-keys $(SERVICES) $(DEV_TARGETS) admin-ui-install admin-ui-dev admin-ui-build
 
 ## Start infrastructure (Kafka)
 infra:
@@ -38,6 +39,10 @@ setup:
 ## Run a service (loads services/<name>/.env automatically)
 $(SERVICES):
 	@./scripts/run.sh $@
+
+## Run a service with auto-reload on source changes (requires ghcid)
+$(DEV_TARGETS):
+	@./scripts/dev.sh $(patsubst dev-%,%,$@)
 
 ## Install admin UI dependencies
 admin-ui-install:

@@ -11,7 +11,7 @@ module Domain.Notifications
   )
 where
 
-import Data.Aeson (FromJSON, ToJSON)
+import Data.Aeson (FromJSON, ToJSON, object, withObject, (.=), (.:))
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import qualified Data.Map.Strict as Map
@@ -43,9 +43,19 @@ class HasNotificationDir env where
 
 -- | Supported notification delivery channels.
 data NotificationChannel
-  = Email !Text -- ^ Recipient email address
+  = Email !Text
   deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
+
+instance ToJSON NotificationChannel where
+  toJSON (Email addr) = object ["channelType" .= ("email" :: Text), "channelAddress" .= addr]
+
+instance FromJSON NotificationChannel where
+  parseJSON = withObject "NotificationChannel" $ \o -> do
+    t <- o .: "channelType"
+    addr <- o .: "channelAddress"
+    case (t :: Text) of
+      "email" -> pure (Email addr)
+      other -> fail $ "Unknown channelType: " <> T.unpack other
 
 -- | A single template variable expressed as a named record.
 data NotificationVariable = NotificationVariable
@@ -76,6 +86,11 @@ data NotificationMessage = NotificationMessage
 --   * One or more required template variables are missing from the message.
 processNotification :: Domain env => NotificationMessage -> RIO env ()
 processNotification msg = do
+  let recipient = case notifChannel msg of Email addr -> addr
+  when ("@fail.com" `T.isSuffixOf` recipient) $ do
+    let errMsg = "Simulated notification failure for @fail.com address: " <> recipient
+    logErrorC $ display errMsg
+    throwString (T.unpack errMsg)
   cache <- view templateCacheL
   case Map.lookup (notifTemplateName msg) cache of
     Nothing -> do
@@ -135,12 +150,11 @@ recordSentNotification ::
   RIO env ()
 recordSentNotification now channel tmplName content = do
   pool <- view dbL
-  let (channelType, recipient) = case channel of
-        Email addr -> ("email", addr)
+  let (chType, recipient) = case channel of Email addr -> ("email", addr)
       record =
         SentNotification
           { sentNotificationTemplateName = tmplName,
-            sentNotificationChannelType = channelType,
+            sentNotificationChannelType = chType,
             sentNotificationRecipient = recipient,
             sentNotificationContent = content,
             sentNotificationSentAt = now

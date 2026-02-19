@@ -19,7 +19,7 @@ import Models.DeadLetter (DeadLetter (..))
 import RIO
 import Servant
 import Servant.Server.Generic (AsServerT)
-import Service.Auth (AccessTokenClaims, HasScopes)
+import Service.Auth (HasScopes)
 import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
 import Service.Kafka (HasKafkaProducer (..))
@@ -125,7 +125,6 @@ server ::
   ( HasLogFunc env,
     HasLogContext env,
     HasCorrelationId env,
-    HasConfig env settings,
     HasDB env,
     HasKafkaProducer env
   ) =>
