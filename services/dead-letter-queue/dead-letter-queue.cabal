@@ -22,9 +22,11 @@ source-repository head
 library
   exposed-modules:
       App
+      Domain.DeadLetters
       Lib
       Models.DeadLetter
-      Ports.Kafka
+      Ports.Consumer
+      Ports.Repository
       Ports.Server
       Settings
   other-modules:

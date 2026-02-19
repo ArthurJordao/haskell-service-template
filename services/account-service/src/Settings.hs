@@ -5,7 +5,7 @@ module Settings
 where
 
 import qualified Ports.Server as Server
-import qualified Ports.Kafka as KafkaPort
+import qualified Ports.Consumer as KafkaPort
 import RIO
 import RIO.Text (pack)
 import qualified Service.Database as Database

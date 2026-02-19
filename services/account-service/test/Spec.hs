@@ -25,9 +25,10 @@ import Network.HTTP.Client
 import Network.HTTP.Types.Status (status200, statusCode)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (testWithApplication)
-import Ports.Server (API, AccountCreatedEvent (..), CreateAccountRequest (..))
+import Ports.Produce (AccountCreatedEvent (..))
+import Ports.Server (API, CreateAccountRequest (..))
 import Service.Events (UserRegisteredEvent (..))
-import qualified Ports.Kafka as KafkaPort
+import qualified Ports.Consumer as KafkaPort
 import qualified Ports.Server as Server
 import RIO
 import RIO.Text (pack, unpack)
