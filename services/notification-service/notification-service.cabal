@@ -4,35 +4,37 @@ cabal-version: 2.2
 --
 -- see: https://github.com/sol/hpack
 
-name:           dead-letter-queue
+name:           notification-service
 version:        0.1.0.0
-description:    Dead letter queue service for managing failed messages with replay capabilities
-homepage:       https://github.com/githubuser/dead-letter-queue#readme
-bug-reports:    https://github.com/githubuser/dead-letter-queue/issues
+description:    Please see the README on GitHub at <https://github.com/githubuser/notification-service#readme>
+homepage:       https://github.com/githubuser/notification-service#readme
+bug-reports:    https://github.com/githubuser/notification-service/issues
 author:         Author name here
 maintainer:     example@example.com
-copyright:      2024 Author name here
+copyright:      2026 Author name here
 license:        BSD-3-Clause
 build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/dead-letter-queue
+  location: https://github.com/githubuser/notification-service
 
 library
   exposed-modules:
       App
-      Domain.DeadLetters
+      Domain.Notifications
       Lib
-      Models.DeadLetter
+      Models.SentNotification
       Ports.Consumer
-      Ports.Repository
       Ports.Server
       Settings
   other-modules:
-      Paths_dead_letter_queue
+      Paths_notification_service
   autogen-modules:
-      Paths_dead_letter_queue
+      Paths_notification_service
   hs-source-dirs:
       src
   default-extensions:
@@ -57,45 +59,35 @@ library
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       aeson
-    , aeson-pretty
-    , attoparsec
-    , attoparsec-binary
     , base >=4.7 && <5
-    , conduit
-    , conduit-extra
     , containers
+    , directory
     , envy
-    , esqueleto
     , fast-logger
+    , filepath
     , haskell-service-lib
-    , hspec
-    , http-client
-    , http-types
     , hw-kafka-client
     , monad-logger
+    , mustache
     , persistent
+    , persistent-postgresql
     , persistent-sqlite
-    , random
-    , resource-pool
+    , persistent-template
     , rio
     , servant
-    , servant-client
     , servant-server
     , text
     , time
-    , transformers
-    , unliftio
-    , vault
     , wai
     , warp
   default-language: Haskell2010
 
-executable dead-letter-queue-exe
+executable notification-service-exe
   main-is: Main.hs
   other-modules:
-      Paths_dead_letter_queue
+      Paths_notification_service
   autogen-modules:
-      Paths_dead_letter_queue
+      Paths_notification_service
   hs-source-dirs:
       app
   default-extensions:
@@ -120,111 +112,37 @@ executable dead-letter-queue-exe
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
-    , aeson-pretty
-    , attoparsec
-    , attoparsec-binary
     , base >=4.7 && <5
-    , conduit
-    , conduit-extra
     , containers
-    , dead-letter-queue
+    , directory
     , envy
-    , esqueleto
     , fast-logger
+    , filepath
     , haskell-service-lib
-    , hspec
-    , http-client
-    , http-types
     , hw-kafka-client
     , monad-logger
+    , mustache
+    , notification-service
     , persistent
+    , persistent-postgresql
     , persistent-sqlite
-    , random
-    , resource-pool
+    , persistent-template
     , rio
     , servant
-    , servant-client
     , servant-server
     , text
     , time
-    , transformers
-    , unliftio
-    , vault
     , wai
     , warp
   default-language: Haskell2010
 
-executable dead-letter-queue-migrations
-  main-is: Main.hs
-  other-modules:
-      Paths_dead_letter_queue
-  autogen-modules:
-      Paths_dead_letter_queue
-  hs-source-dirs:
-      migrations-app
-  default-extensions:
-      LambdaCase
-      OverloadedRecordDot
-      OverloadedStrings
-      NoImplicitPrelude
-      BangPatterns
-      BinaryLiterals
-      DeriveGeneric
-      ScopedTypeVariables
-      DataKinds
-      TypeOperators
-      RecordWildCards
-      FunctionalDependencies
-      AllowAmbiguousTypes
-      TypeApplications
-      FlexibleInstances
-      UndecidableInstances
-      DerivingStrategies
-      DeriveAnyClass
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
-  build-depends:
-      aeson
-    , aeson-pretty
-    , attoparsec
-    , attoparsec-binary
-    , base >=4.7 && <5
-    , conduit
-    , conduit-extra
-    , containers
-    , dead-letter-queue
-    , envy
-    , esqueleto
-    , fast-logger
-    , haskell-service-lib
-    , hspec
-    , http-client
-    , http-types
-    , hw-kafka-client
-    , monad-logger
-    , persistent
-    , persistent-sqlite
-    , random
-    , resource-pool
-    , rio
-    , servant
-    , servant-client
-    , servant-server
-    , text
-    , time
-    , transformers
-    , unliftio
-    , vault
-    , wai
-    , warp
-  default-language: Haskell2010
-
-test-suite dead-letter-queue-test
+test-suite notification-service-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      Paths_dead_letter_queue
+      Paths_notification_service
   autogen-modules:
-      Paths_dead_letter_queue
+      Paths_notification_service
   hs-source-dirs:
       test
   default-extensions:
@@ -249,36 +167,30 @@ test-suite dead-letter-queue-test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
-    , aeson-pretty
-    , attoparsec
-    , attoparsec-binary
     , base >=4.7 && <5
-    , conduit
-    , conduit-extra
     , containers
-    , dead-letter-queue
+    , directory
     , envy
-    , esqueleto
     , fast-logger
+    , filepath
     , haskell-service-lib
     , hspec
     , http-client
     , http-types
     , hw-kafka-client
     , monad-logger
+    , mtl
+    , mustache
+    , notification-service
     , persistent
+    , persistent-postgresql
     , persistent-sqlite
-    , random
-    , resource-pool
+    , persistent-template
     , rio
     , servant
-    , servant-client
     , servant-server
     , text
     , time
-    , transformers
-    , unliftio
-    , vault
     , wai
     , warp
   default-language: Haskell2010

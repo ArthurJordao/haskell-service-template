@@ -28,6 +28,7 @@ library
       App
       Auth.JWT
       Auth.Password
+      Domain.Auth
       Lib
       Models.User
       Ports.Consumer

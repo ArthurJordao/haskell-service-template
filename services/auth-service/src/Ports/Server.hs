@@ -12,22 +12,10 @@ module Ports.Server
   )
 where
 
-import Auth.JWT
-  ( JWTSettings (..),
-    issueAccessToken,
-    issueRefreshToken,
-    verifyRefreshTokenJti,
-  )
-import Auth.Password (hashPassword, verifyPassword)
+import Auth.JWT (JWTSettings (..))
 import Data.Aeson (FromJSON, ToJSON)
-import Data.Time (addUTCTime, getCurrentTime, nominalDay)
-import Database.Persist.Sql (Entity (..), fromSqlKey)
-import Models.User (UserId)
-import qualified Models.User as User
-import Ports.Produce (publishUserRegistered)
-import Ports.Repository
+import qualified Domain.Auth as Domain
 import RIO
-import RIO.Text (unpack)
 import Servant
 import Servant.Server.Generic (AsServerT)
 import Service.CorrelationId (HasLogContext (..), logInfoC)
@@ -124,7 +112,7 @@ data Routes route = Routes
 type API = NamedRoutes Routes
 
 -- ============================================================================
--- HasConfig (mirrors account-service pattern, extended with jwtSettings)
+-- HasConfig
 -- ============================================================================
 
 class HasConfig env settings | env -> settings where
@@ -133,7 +121,7 @@ class HasConfig env settings | env -> settings where
   jwtSettings :: settings -> JWTSettings
 
 -- ============================================================================
--- Server
+-- Server (thin adapter — delegates to Domain)
 -- ============================================================================
 
 server ::
@@ -176,21 +164,10 @@ registerHandler ::
   RegisterRequest ->
   RIO env AuthTokens
 registerHandler req = do
-  logInfoC $ "Register request for: " <> display (registerEmail req)
-  existing <- findUserByEmail (registerEmail req)
-  case existing of
-    Just _ -> throwM err409 {errBody = "Email already registered"}
-    Nothing -> do
-      mHash <- liftIO $ hashPassword (registerPassword req)
-      passwordHash <- maybe (throwM err500 {errBody = "Failed to hash password"}) return mHash
-      let newUser =
-            User.User
-              { User.userEmail = registerEmail req,
-                User.userPasswordHash = passwordHash
-              }
-      userId <- createUser newUser
-      publishUserRegistered (fromSqlKey userId) (registerEmail req)
-      issueTokenPair @env @settings userId (registerEmail req)
+  settings <- view (settingsL @env @settings)
+  let jwt = jwtSettings @env @settings settings
+  (at, rt, expiresIn_) <- Domain.register jwt (registerEmail req) (registerPassword req)
+  return AuthTokens {accessToken = at, authRefreshToken = rt, tokenType = "Bearer", expiresIn = expiresIn_}
 
 loginHandler ::
   forall env settings.
@@ -202,15 +179,10 @@ loginHandler ::
   LoginRequest ->
   RIO env AuthTokens
 loginHandler req = do
-  logInfoC $ "Login request for: " <> display (loginEmail req)
-  mUser <- findUserByEmail (loginEmail req)
-  case mUser of
-    Nothing -> throwM err401 {errBody = "Invalid credentials"}
-    Just (Entity userId user) -> do
-      unless (verifyPassword (User.userPasswordHash user) (loginPassword req)) $
-        throwM err401 {errBody = "Invalid credentials"}
-      logInfoC $ "Login successful for user ID: " <> displayShow (fromSqlKey userId :: Int64)
-      issueTokenPair @env @settings userId (User.userEmail user)
+  settings <- view (settingsL @env @settings)
+  let jwt = jwtSettings @env @settings settings
+  (at, rt, expiresIn_) <- Domain.login jwt (loginEmail req) (loginPassword req)
+  return AuthTokens {accessToken = at, authRefreshToken = rt, tokenType = "Bearer", expiresIn = expiresIn_}
 
 refreshHandler ::
   forall env settings.
@@ -222,37 +194,16 @@ refreshHandler ::
   RefreshRequest ->
   RIO env AuthTokens
 refreshHandler req = do
-  logInfoC "Token refresh request"
   settings <- view (settingsL @env @settings)
   let jwt = jwtSettings @env @settings settings
-
-  jti <- liftIO (verifyRefreshTokenJti jwt (refreshRequestToken req)) >>= \case
-    Left err -> throwM err401 {errBody = fromString (unpack err)}
-    Right j -> return j
-
-  mToken <- findRefreshTokenByJti jti
-  case mToken of
-    Nothing -> throwM err401 {errBody = "Refresh token not found"}
-    Just (Entity _ token) -> do
-      when (User.refreshTokenRevoked token) $
-        throwM err401 {errBody = "Refresh token has been revoked"}
-
-      let userId = User.refreshTokenUserId token
-      mUser <- findUserById userId
-      case mUser of
-        Nothing -> throwM err500 {errBody = "User not found"}
-        Just user -> do
-          now <- liftIO getCurrentTime
-          at <- liftIO (issueAccessToken jwt (fromSqlKey userId) (User.userEmail user) now) >>= \case
-            Left err -> throwM err500 {errBody = fromString (unpack err)}
-            Right t -> return t
-          return
-            AuthTokens
-              { accessToken = at,
-                authRefreshToken = refreshRequestToken req,
-                tokenType = "Bearer",
-                expiresIn = jwtAccessTokenExpirySeconds jwt
-              }
+  (at, expiresIn_) <- Domain.refreshAccessToken jwt (refreshRequestToken req)
+  return
+    AuthTokens
+      { accessToken = at,
+        authRefreshToken = refreshRequestToken req,
+        tokenType = "Bearer",
+        expiresIn = expiresIn_
+      }
 
 logoutHandler ::
   forall env settings.
@@ -264,72 +215,12 @@ logoutHandler ::
   LogoutRequest ->
   RIO env NoContent
 logoutHandler req = do
-  logInfoC "Logout request"
   settings <- view (settingsL @env @settings)
   let jwt = jwtSettings @env @settings settings
-
-  jtiResult <- liftIO $ verifyRefreshTokenJti jwt (logoutRefreshToken req)
-  case jtiResult of
-    Left _ ->
-      -- Token is invalid or expired; treat logout as successful
-      return NoContent
-    Right jti -> do
-      mToken <- findRefreshTokenByJti jti
-      case mToken of
-        Just (Entity tokenId _) -> revokeRefreshToken tokenId
-        Nothing -> return ()
-      logInfoC $ "Revoked refresh token: " <> display jti
-      return NoContent
+  Domain.logout jwt (logoutRefreshToken req)
+  return NoContent
 
 metricsEndpointHandler :: (HasMetrics env) => RIO env Text
 metricsEndpointHandler = do
   metrics <- view metricsL
   liftIO $ metricsHandler metrics
-
--- ============================================================================
--- Helpers
--- ============================================================================
-
-issueTokenPair ::
-  forall env settings.
-  ( HasLogFunc env,
-    HasLogContext env,
-    HasConfig env settings,
-    HasDB env
-  ) =>
-  UserId ->
-  Text ->
-  RIO env AuthTokens
-issueTokenPair userId email = do
-  settings <- view (settingsL @env @settings)
-  let jwt = jwtSettings @env @settings settings
-  let userIdInt = fromSqlKey userId :: Int64
-  now <- liftIO getCurrentTime
-
-  at <- liftIO (issueAccessToken jwt userIdInt email now) >>= \case
-    Left err -> throwM err500 {errBody = fromString (unpack err)}
-    Right t -> return t
-
-  (jti, rt) <- liftIO (issueRefreshToken jwt userIdInt now) >>= \case
-    Left err -> throwM err500 {errBody = fromString (unpack err)}
-    Right pair -> return pair
-
-  let expiresAt = addUTCTime (nominalDay * fromIntegral (jwtRefreshTokenExpiryDays jwt)) now
-      storedToken =
-        User.RefreshToken
-          { User.refreshTokenJti = jti,
-            User.refreshTokenUserId = userId,
-            User.refreshTokenExpiresAt = expiresAt,
-            User.refreshTokenRevoked = False,
-            User.refreshTokenCreatedAt = now
-          }
-  storeRefreshToken storedToken
-
-  logInfoC $ "Issued token pair for user: " <> displayShow userIdInt
-  return
-    AuthTokens
-      { accessToken = at,
-        authRefreshToken = rt,
-        tokenType = "Bearer",
-        expiresIn = jwtAccessTokenExpirySeconds jwt
-      }

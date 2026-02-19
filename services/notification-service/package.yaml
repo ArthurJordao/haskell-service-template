@@ -1,0 +1,102 @@
+name:                notification-service
+version:             0.1.0.0
+github:              "githubuser/notification-service"
+license:             BSD-3-Clause
+author:              "Author name here"
+maintainer:          "example@example.com"
+copyright:           "2026 Author name here"
+
+extra-source-files:
+- README.md
+- CHANGELOG.md
+
+description:         Please see the README on GitHub at <https://github.com/githubuser/notification-service#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- rio
+- aeson
+- text
+- servant
+- servant-server
+- warp
+- wai
+- hw-kafka-client
+- containers
+- envy
+- fast-logger
+- haskell-service-lib
+- mustache
+- directory
+- filepath
+- persistent
+- persistent-template
+- persistent-sqlite
+- persistent-postgresql
+- monad-logger
+- time
+
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+
+default-extensions:
+  - LambdaCase
+  - OverloadedRecordDot
+  - OverloadedStrings
+  - NoImplicitPrelude
+  - BangPatterns
+  - BinaryLiterals
+  - DeriveGeneric
+  - ScopedTypeVariables
+  - DataKinds
+  - TypeOperators
+  - RecordWildCards
+  - FunctionalDependencies
+  - AllowAmbiguousTypes
+  - TypeApplications
+  - FlexibleInstances
+  - UndecidableInstances
+  - DerivingStrategies
+  - DeriveAnyClass
+
+library:
+  source-dirs: src
+
+executables:
+  notification-service-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - notification-service
+
+tests:
+  notification-service-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - notification-service
+    - hspec
+    - http-client
+    - http-types
+    - monad-logger
+    - mtl
+    - persistent
+    - persistent-sqlite
+    - wai
+    - warp

@@ -4,40 +4,34 @@ module Settings
   )
 where
 
-import qualified Ports.Server as Server
 import qualified Ports.Consumer as KafkaPort
-import RIO
-import RIO.Text (pack)
+import qualified Ports.Server as Server
 import qualified Service.Database as Database
-import System.Envy (FromEnv (..), decodeEnv, env)
-
-data JWTEnvSettings = JWTEnvSettings
-  { jwtRawSecret :: !String
-  }
-
-instance FromEnv JWTEnvSettings where
-  fromEnv _ = JWTEnvSettings <$> env "JWT_SECRET"
+import RIO
+import System.Environment (lookupEnv)
 
 data Settings = Settings
   { server :: !Server.Settings,
     kafka :: !KafkaPort.Settings,
-    database :: !Database.Settings,
-    jwtSecret :: !Text
+    db :: !Database.Settings,
+    templatesDir :: !FilePath,
+    notificationsDir :: !FilePath
   }
-  deriving (Show, Eq)
 
 decoder :: (HasLogFunc env) => RIO env Settings
 decoder = do
   serverSettings <- Server.decoder
   kafkaSettings <- KafkaPort.decoder
   dbSettings <- Database.decoder
-  jwtEnv <- liftIO (decodeEnv @JWTEnvSettings) >>= either throwString return
+  tDir <- liftIO $ fromMaybe "resources/templates" <$> lookupEnv "TEMPLATES_DIR"
+  nDir <- liftIO $ fromMaybe "notifications" <$> lookupEnv "NOTIFICATIONS_DIR"
   return
     Settings
       { server = serverSettings,
         kafka = kafkaSettings,
-        database = dbSettings,
-        jwtSecret = pack (jwtRawSecret jwtEnv)
+        db = dbSettings,
+        templatesDir = tDir,
+        notificationsDir = nDir
       }
 
 loadSettings :: LogFunc -> IO Settings

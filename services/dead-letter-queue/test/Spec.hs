@@ -8,7 +8,7 @@ import qualified Data.Map.Strict as Map
 import Data.Time.Clock (getCurrentTime)
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool, insert)
 import qualified Ports.Server as Server
-import qualified Ports.Kafka as KafkaPort
+import qualified Ports.Consumer as KafkaPort
 import Kafka.Consumer (TopicName (..))
 import Models.DeadLetter (DeadLetter (..), migrateAll)
 import Network.HTTP.Client (RequestBody (..), defaultManagerSettings, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseStatus)
