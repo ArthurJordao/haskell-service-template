@@ -46,10 +46,19 @@ function statusVariant(status: string): 'default' | 'secondary' | 'destructive' 
   }
 }
 
+function prettyJson(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    return raw
+  }
+}
+
 export default function DLQPage() {
   const [stats, setStats] = useState<DLQStats | null>(null)
   const [records, setRecords] = useState<DeadLetterRecord[]>([])
   const [loading, setLoading] = useState(false)
+  const [expandedId, setExpandedId] = useState<number | null>(null)
 
   // Filters — 'all' is the sentinel for "no filter"
   const [filterStatus, setFilterStatus] = useState('all')
@@ -106,6 +115,10 @@ export default function DLQPage() {
   const toggleAll = () => {
     if (selected.size === records.length) setSelected(new Set())
     else setSelected(new Set(records.map(r => r.dlrId)))
+  }
+
+  const toggleExpand = (id: number) => {
+    setExpandedId(prev => (prev === id ? null : id))
   }
 
   const handleConfirm = async () => {
@@ -238,45 +251,94 @@ export default function DLQPage() {
               </TableRow>
             ) : (
               records.map(r => (
-                <TableRow key={r.dlrId}>
-                  <TableCell>
-                    <input
-                      type="checkbox"
-                      checked={selected.has(r.dlrId)}
-                      onChange={() => toggleSelect(r.dlrId)}
-                    />
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">{r.dlrId}</TableCell>
-                  <TableCell className="max-w-[160px] truncate text-sm">{r.dlrOriginalTopic}</TableCell>
-                  <TableCell className="max-w-[160px] truncate text-sm">{r.dlrErrorType}</TableCell>
-                  <TableCell>
-                    <Badge variant={statusVariant(r.dlrStatus)}>{r.dlrStatus}</Badge>
-                  </TableCell>
-                  <TableCell>{r.dlrRetryCount}</TableCell>
-                  <TableCell className="text-xs">
-                    {new Date(r.dlrCreatedAt).toLocaleString()}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setConfirmAction({ type: 'replay', ids: [r.dlrId] })}
-                        disabled={r.dlrStatus !== 'pending'}
-                      >
-                        Replay
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => setConfirmAction({ type: 'discard', ids: [r.dlrId] })}
-                        disabled={r.dlrStatus === 'discarded'}
-                      >
-                        Discard
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
+                <>
+                  <TableRow
+                    key={r.dlrId}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => toggleExpand(r.dlrId)}
+                  >
+                    <TableCell onClick={e => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(r.dlrId)}
+                        onChange={() => toggleSelect(r.dlrId)}
+                      />
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{r.dlrId}</TableCell>
+                    <TableCell className="max-w-[160px] truncate text-sm">{r.dlrOriginalTopic}</TableCell>
+                    <TableCell className="max-w-[160px] truncate text-sm">{r.dlrErrorType}</TableCell>
+                    <TableCell>
+                      <Badge variant={statusVariant(r.dlrStatus)}>{r.dlrStatus}</Badge>
+                    </TableCell>
+                    <TableCell>{r.dlrRetryCount}</TableCell>
+                    <TableCell className="text-xs">
+                      {new Date(r.dlrCreatedAt).toLocaleString()}
+                    </TableCell>
+                    <TableCell onClick={e => e.stopPropagation()}>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setConfirmAction({ type: 'replay', ids: [r.dlrId] })}
+                          disabled={r.dlrStatus !== 'pending'}
+                        >
+                          Replay
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => setConfirmAction({ type: 'discard', ids: [r.dlrId] })}
+                          disabled={r.dlrStatus === 'discarded'}
+                        >
+                          Discard
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+
+                  {expandedId === r.dlrId && (
+                    <TableRow key={`${r.dlrId}-detail`} className="bg-muted/30">
+                      <TableCell colSpan={8} className="p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                          <div className="space-y-1">
+                            <p className="font-medium text-muted-foreground">Correlation ID</p>
+                            <p className="font-mono text-xs break-all">{r.dlrCorrelationId}</p>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="font-medium text-muted-foreground">Error Details</p>
+                            <p className="text-xs whitespace-pre-wrap break-all">{r.dlrErrorDetails}</p>
+                          </div>
+                          <div className="space-y-1 md:col-span-2">
+                            <p className="font-medium text-muted-foreground">Original Message</p>
+                            <pre className="text-xs bg-background rounded p-3 border overflow-x-auto whitespace-pre-wrap break-all">
+                              {prettyJson(r.dlrOriginalMessage)}
+                            </pre>
+                          </div>
+                          {r.dlrOriginalHeaders && (
+                            <div className="space-y-1 md:col-span-2">
+                              <p className="font-medium text-muted-foreground">Original Headers</p>
+                              <pre className="text-xs bg-background rounded p-3 border overflow-x-auto">
+                                {prettyJson(r.dlrOriginalHeaders)}
+                              </pre>
+                            </div>
+                          )}
+                          {r.dlrReplayedAt && (
+                            <div className="space-y-1">
+                              <p className="font-medium text-muted-foreground">Replayed At</p>
+                              <p className="text-xs">{new Date(r.dlrReplayedAt).toLocaleString()}</p>
+                            </div>
+                          )}
+                          {r.dlrReplayResult && (
+                            <div className="space-y-1">
+                              <p className="font-medium text-muted-foreground">Replay Result</p>
+                              <p className="text-xs">{r.dlrReplayResult}</p>
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </>
               ))
             )}
           </TableBody>

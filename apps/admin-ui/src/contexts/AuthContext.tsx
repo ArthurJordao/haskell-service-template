@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom'
 
 interface AuthContextValue {
   token: string | null
-  login: (token: string) => void
+  login: (accessToken: string, refreshToken: string) => void
   logout: () => void
 }
 
@@ -17,10 +17,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('access_token', token)
     } else {
       localStorage.removeItem('access_token')
+      localStorage.removeItem('refresh_token')
     }
   }, [token])
 
-  const login = (t: string) => setToken(t)
+  const login = (accessToken: string, refreshToken: string) => {
+    localStorage.setItem('refresh_token', refreshToken)
+    setToken(accessToken)
+  }
+
   const logout = () => setToken(null)
 
   return <AuthContext.Provider value={{ token, login, logout }}>{children}</AuthContext.Provider>

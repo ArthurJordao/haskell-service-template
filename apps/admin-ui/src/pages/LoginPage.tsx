@@ -20,8 +20,8 @@ export default function LoginPage() {
     setError(null)
     setLoading(true)
     try {
-      const { accessToken } = await apiLogin(email, password)
-      login(accessToken)
+      const { accessToken, refreshToken } = await apiLogin(email, password)
+      login(accessToken, refreshToken)
       navigate('/admin/dlq')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
