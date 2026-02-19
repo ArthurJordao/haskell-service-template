@@ -10,6 +10,9 @@ module Service.Auth
     makeJWTAuthConfig,
     JWTAuth,
     RequireOwner,
+    RequireOwnerOrScopes,
+    HasScopes,
+    KnownSymbols (..),
   )
 where
 
@@ -74,7 +77,7 @@ instance MonadRandom m => MonadRandom (ExceptT e m) where
 -- | Claims extracted from a verified access token.
 data AccessTokenClaims = AccessTokenClaims
   { atcSubject :: !Text,
-    atcEmail :: !Text,
+    atcEmail :: !(Maybe Text),
     atcJti :: !Text,
     atcScopes :: ![Text]
   }
@@ -147,8 +150,8 @@ extractClaims claims = do
   jac <- case fromJSON (toJSON claims) :: Result JwtAccessClaims of
     Error err -> Left (pack err)
     Success j -> Right j
-  email <- maybe (Left "Missing or invalid field: email") Right (jacEmail jac)
-  let scopes = fromMaybe [] (jacScopes jac)
+  let email = jacEmail jac
+      scopes = fromMaybe [] (jacScopes jac)
   Right AccessTokenClaims {atcSubject = sub, atcEmail = email, atcJti = jti, atcScopes = scopes}
 
 suriToText :: (ToJSON a) => a -> Text
@@ -225,3 +228,88 @@ instance
     where
       cfg = getContextEntry ctx :: JWTAuthConfig
       hint = CaptureHint (pack $ symbolVal (Proxy @sym)) (typeRep (Proxy @t))
+
+-- | Servant combinator: like 'RequireOwner', but also accepts tokens that carry
+-- at least one of the @override@ scopes (e.g. @'["admin"]@).
+data RequireOwnerOrScopes (sym :: Symbol) t (override :: [Symbol])
+
+instance
+  ( HasServer api ctx,
+    HasContextEntry ctx JWTAuthConfig,
+    KnownSymbol sym,
+    FromHttpApiData t,
+    Show t,
+    Typeable t,
+    KnownSymbols override
+  ) =>
+  HasServer (RequireOwnerOrScopes sym t override :> api) ctx
+  where
+  type ServerT (RequireOwnerOrScopes sym t override :> api) m = t -> AccessTokenClaims -> ServerT api m
+
+  hoistServerWithContext _ pc nt s =
+    \v c -> hoistServerWithContext (Proxy @api) pc nt (s v c)
+
+  route Proxy ctx sub =
+    CaptureRouter [hint] $
+      route (Proxy @api) ctx $
+        addCapture (fmap (\f (v, c) -> f v c) sub) $ \txt -> do
+          v <- either (\_ -> delayedFail err400) return (parseUrlPiece txt)
+          claims <- withRequest $ \req ->
+            case extractBearer req of
+              Nothing -> delayedFailFatal err401
+              Just token ->
+                liftIO (jwtAuthValidate cfg token) >>= \case
+                  Left _ -> delayedFailFatal err401
+                  Right c -> return c
+          let expected = jwtAuthSubjectPrefix cfg <> pack (show v)
+              overrideScopes = map pack $ symbolVals (Proxy @override)
+              hasOverride = any (`elem` atcScopes claims) overrideScopes
+          unless (expected == atcSubject claims || hasOverride) $
+            delayedFailFatal err403 {errBody = "Forbidden"}
+          return (v, claims)
+    where
+      cfg = getContextEntry ctx :: JWTAuthConfig
+      hint = CaptureHint (pack $ symbolVal (Proxy @sym)) (typeRep (Proxy @t))
+
+-- | Reflect a type-level list of Symbols to a value-level list of Strings.
+class KnownSymbols (syms :: [Symbol]) where
+  symbolVals :: Proxy syms -> [String]
+
+instance KnownSymbols '[] where
+  symbolVals _ = []
+
+instance (KnownSymbol s, KnownSymbols ss) => KnownSymbols (s ': ss) where
+  symbolVals _ = symbolVal (Proxy @s) : symbolVals (Proxy @ss)
+
+-- | Servant combinator: validates Bearer JWT and enforces that the token's
+-- scopes include all of @required@. Passes 'AccessTokenClaims' to the handler.
+data HasScopes (required :: [Symbol])
+
+instance
+  ( HasServer api ctx,
+    HasContextEntry ctx JWTAuthConfig,
+    KnownSymbols required
+  ) =>
+  HasServer (HasScopes required :> api) ctx
+  where
+  type ServerT (HasScopes required :> api) m = AccessTokenClaims -> ServerT api m
+
+  hoistServerWithContext _ pc nt s =
+    hoistServerWithContext (Proxy @api) pc nt . s
+
+  route Proxy ctx sub =
+    route (Proxy @api) ctx (sub `addAuthCheck` authCheck)
+    where
+      cfg = getContextEntry ctx :: JWTAuthConfig
+      required = map pack $ symbolVals (Proxy @required)
+      authCheck :: DelayedIO AccessTokenClaims
+      authCheck = withRequest $ \req ->
+        case extractBearer req of
+          Nothing -> delayedFailFatal err401
+          Just token ->
+            liftIO (jwtAuthValidate cfg token) >>= \case
+              Left _ -> delayedFailFatal err401
+              Right claims ->
+                if all (`elem` atcScopes claims) required
+                  then return claims
+                  else delayedFailFatal err403 {errBody = "Insufficient scopes"}

@@ -173,19 +173,31 @@ mockJwtConfig :: JWTAuthConfig
 mockJwtConfig =
   JWTAuthConfig
     { jwtAuthValidate = \token ->
-        let prefix = "token-user-"
-         in if prefix `T.isPrefixOf` token
+        let userPrefix  = "token-user-"
+            adminPrefix = "token-admin-"
+         in if userPrefix `T.isPrefixOf` token
               then do
-                let uid = T.drop (T.length prefix) token
+                let uid = T.drop (T.length userPrefix) token
                 return $
                   Right
                     AccessTokenClaims
                       { atcSubject = "user-" <> uid,
-                        atcEmail = uid <> "@example.com",
+                        atcEmail = Just (uid <> "@example.com"),
                         atcJti = "jti-" <> uid,
                         atcScopes = ["read:accounts:own"]
                       }
-              else return (Left "invalid token"),
+              else if adminPrefix `T.isPrefixOf` token
+                then do
+                  let uid = T.drop (T.length adminPrefix) token
+                  return $
+                    Right
+                      AccessTokenClaims
+                        { atcSubject = "user-" <> uid,
+                          atcEmail = Just (uid <> "@example.com"),
+                          atcJti = "jti-admin-" <> uid,
+                          atcScopes = ["read:accounts:own", "admin"]
+                        }
+                else return (Left "invalid token"),
       jwtAuthSubjectPrefix = "user-"
     }
 
@@ -481,6 +493,30 @@ spec = describe "Server" $ do
             req {requestHeaders = [("Authorization", "Bearer not-a-valid-token")]}
             manager
         statusCode (responseStatus resp) `shouldBe` 401
+
+    it "returns 200 for an admin token belonging to a different user" $ do
+      withTestApp $ \port' _ -> do
+        manager <- newManager defaultManagerSettings
+
+        let createReq = CreateAccountRequest "Carol" "carol@example.com"
+        createInitReq <- parseRequest (baseUrl port' <> "/accounts")
+        _ <-
+          httpLbs
+            createInitReq
+              { method = "POST",
+                requestBody = RequestBodyLBS (encode createReq),
+                requestHeaders = [("Content-Type", "application/json")]
+              }
+            manager
+
+        -- "token-admin-99" is not the owner (user-1) but carries the "admin" scope
+        req <- parseRequest (baseUrl port' <> "/accounts/1")
+        resp <-
+          httpLbs
+            req {requestHeaders = [("Authorization", "Bearer token-admin-99")]}
+            manager
+
+        statusCode (responseStatus resp) `shouldBe` 200
 
 main :: IO ()
 main = hspec spec

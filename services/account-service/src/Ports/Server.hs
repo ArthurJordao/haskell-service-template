@@ -22,7 +22,7 @@ import Servant.Server.Generic (AsServerT)
 import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..), runSqlPoolWithCid)
 import Service.Kafka (HasKafkaProducer (..))
-import Service.Auth (AccessTokenClaims (..), RequireOwner)
+import Service.Auth (AccessTokenClaims (..), RequireOwnerOrScopes)
 import Service.HttpClient (HasHttpClient, callServiceGet)
 import Service.Metrics (HasMetrics (..), metricsHandler)
 import Service.Server
@@ -70,7 +70,7 @@ data Routes route = Routes
       route
         :- Summary "Get account by ID"
           :> "accounts"
-          :> RequireOwner "id" Int64
+          :> RequireOwnerOrScopes "id" Int64 '["admin"]
           :> Get '[JSON] Account,
     createAccount ::
       route

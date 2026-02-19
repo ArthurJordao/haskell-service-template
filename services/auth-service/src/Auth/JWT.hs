@@ -5,6 +5,8 @@ module Auth.JWT
     AccessTokenClaims (..),
     makeJWTKey,
     issueAccessToken,
+    issueAdminAccessToken,
+    issueServiceToken,
     issueRefreshToken,
     verifyAccessToken,
     verifyRefreshTokenJti,
@@ -111,6 +113,61 @@ issueAccessToken settings userId email issuedAt = do
         Left (err :: JWTError) -> return $ Left (pack $ show err)
         Right jwt -> return $ Right $ decodeUtf8Lenient $ BL.toStrict $ encodeCompact jwt
 
+defaultAdminScopes :: [Text]
+defaultAdminScopes = ["read:accounts:own", "write:accounts:own", "admin"]
+
+-- | Issue a signed access JWT for an admin user.
+-- Identical to 'issueAccessToken' but includes the @"admin"@ scope.
+issueAdminAccessToken :: JWTSettings -> Int64 -> Text -> UTCTime -> IO (Either Text Text)
+issueAdminAccessToken settings userId email issuedAt = do
+  jti <- generateJti
+  let expiry = addUTCTime (accessExpiry settings) issuedAt
+      sub = fromString ("user-" <> show userId)
+      baseClaims =
+        emptyClaimsSet
+          & claimSub ?~ sub
+          & claimIat ?~ NumericDate issuedAt
+          & claimExp ?~ NumericDate expiry
+          & claimJti ?~ fromString (unpack jti)
+      extras = object
+        [ "type" .= ("customer" :: Text)
+        , "email" .= email
+        , "scopes" .= defaultAdminScopes
+        ]
+  case withExtraClaims baseClaims extras of
+    Left err -> return $ Left err
+    Right claims -> do
+      result <- runExceptT $ signClaims (jwtKey settings) (newJWSHeader ((), HS256)) claims
+      case result of
+        Left (err :: JWTError) -> return $ Left (pack $ show err)
+        Right jwt -> return $ Right $ decodeUtf8Lenient $ BL.toStrict $ encodeCompact jwt
+
+-- | Issue a signed access JWT for an internal service.
+-- The subject is @"service-{name}"@; no email is embedded; scopes encode the
+-- service identity (e.g. @["service:accounts"]@).
+issueServiceToken :: JWTSettings -> Text -> [Text] -> UTCTime -> IO (Either Text Text)
+issueServiceToken settings serviceName scopes issuedAt = do
+  jti <- generateJti
+  let expiry = addUTCTime (accessExpiry settings) issuedAt
+      sub = fromString ("service-" <> unpack serviceName)
+      baseClaims =
+        emptyClaimsSet
+          & claimSub ?~ sub
+          & claimIat ?~ NumericDate issuedAt
+          & claimExp ?~ NumericDate expiry
+          & claimJti ?~ fromString (unpack jti)
+      extras = object
+        [ "type" .= ("service" :: Text)
+        , "scopes" .= scopes
+        ]
+  case withExtraClaims baseClaims extras of
+    Left err -> return $ Left err
+    Right claims -> do
+      result <- runExceptT $ signClaims (jwtKey settings) (newJWSHeader ((), HS256)) claims
+      case result of
+        Left (err :: JWTError) -> return $ Left (pack $ show err)
+        Right jwt -> return $ Right $ decodeUtf8Lenient $ BL.toStrict $ encodeCompact jwt
+
 -- | Issue a signed refresh JWT. Returns (jti, compactTokenText).
 issueRefreshToken :: JWTSettings -> Int64 -> UTCTime -> IO (Either Text (Text, Text))
 issueRefreshToken settings userId issuedAt = do
@@ -168,12 +225,11 @@ extractAccessClaims claims = do
   jac <- case fromJSON (toJSON claims) :: Result JwtAccessClaims of
     Error err -> Left (pack err)
     Success j -> Right j
-  email <- maybe (Left "Missing or invalid field: email") Right (jacEmail jac)
-  let scopes = fromMaybe defaultUserScopes (jacScopes jac)
+  let scopes = fromMaybe [] (jacScopes jac)
   Right
     AccessTokenClaims
       { atcSubject = sub,
-        atcEmail = email,
+        atcEmail = jacEmail jac,
         atcJti = jti,
         atcScopes = scopes
       }
