@@ -1,39 +1,83 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-import Ports.Server (API, AccountCreatedEvent (..), CreateAccountRequest (..))
 import Control.Monad.Logger (runStderrLoggingT)
 import Data.Aeson (decode, encode)
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map.Strict as Map
+import Data.Text.Encoding (encodeUtf8)
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
-import qualified Ports.Server as Server
-import qualified Ports.Kafka as KafkaPort
 import Kafka.Consumer (TopicName (..))
 import Models.Account (Account (..), migrateAll)
-import Network.HTTP.Client (RequestBody (..), defaultManagerSettings, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseStatus)
-import Network.HTTP.Types.Status (status200)
+import Network.HTTP.Client
+  ( Manager,
+    RequestBody (..),
+    Response,
+    defaultManagerSettings,
+    httpLbs,
+    method,
+    newManager,
+    parseRequest,
+    requestBody,
+    requestHeaders,
+    responseBody,
+    responseStatus,
+  )
+import Network.HTTP.Types.Status (status200, statusCode)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (testWithApplication)
+import Ports.Server (API, AccountCreatedEvent (..), CreateAccountRequest (..))
+import Service.Events (UserRegisteredEvent (..))
+import qualified Ports.Kafka as KafkaPort
+import qualified Ports.Server as Server
 import RIO
-import RIO.Text (pack)
+import RIO.Text (pack, unpack)
 import qualified RIO.Text as T
 import qualified RIO.Seq as Seq
-import Servant (err500, errBody, hoistServer, serve)
-import Servant.Server.Generic (AsServerT)
-import Service.CorrelationId (HasLogContext (..))
+import Servant (Proxy (..), err500, errBody)
+import Servant.Server (Context (..), hoistServerWithContext, serveWithContext)
+import Service.Auth (AccessTokenClaims (..), JWTAuthConfig (..))
+import Service.CorrelationId
+  ( CorrelationId (..),
+    HasCorrelationId (..),
+    HasLogContext (..),
+    defaultCorrelationId,
+    logInfoC,
+    unCorrelationId,
+  )
 import Service.Database (HasDB (..))
 import qualified Service.Database as Database
-import Service.Kafka (HasKafkaProducer (..))
-import Service.HttpClient (HttpClient, HasHttpClient (..), HttpError (..))
+import Service.HttpClient (HasHttpClient (..), HttpClient)
 import qualified Service.HttpClient as HttpClient
-import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), defaultCorrelationId, logInfoC, unCorrelationId)
-import qualified Data.Text.Encoding as TE
-import Service.Test.Kafka (MockConsumer (..), MockKafkaState (..), MockProducer (..), QueuedMessage (..), consumedMessages, mockProduceMessage, newMockKafkaState, processAllMessages)
-import Service.Test.HttpClient (MockHttpState, MockRequest (..), assertRequestMade, mockResponse, newMockHttpState, getRequests)
+import Service.Kafka (HasKafkaProducer (..))
+import Service.Metrics (HasMetrics (..), Metrics, initMetrics)
+import Service.Test.HttpClient
+  ( MockHttpState,
+    MockRequest (..),
+    assertRequestMade,
+    getRequests,
+    mockResponse,
+    newMockHttpState,
+  )
 import qualified Service.Test.HttpClient as MockHttp
+import Service.Test.Kafka
+  ( MockConsumer (..),
+    MockKafkaState (..),
+    MockProducer (..),
+    QueuedMessage (..),
+    consumedMessages,
+    mockProduceMessage,
+    newMockKafkaState,
+    processAllMessages,
+  )
+import qualified Data.Text.Encoding as TE
 import Settings (Settings (..))
+import Servant.Server.Generic (AsServerT)
 import Test.Hspec
 
--- Test application with mock Kafka and mock HTTP
+-- ============================================================================
+-- Test Environment
+-- ============================================================================
+
 data TestApp = TestApp
   { testAppLogFunc :: !LogFunc,
     testAppLogContext :: !(Map Text Text),
@@ -42,7 +86,8 @@ data TestApp = TestApp
     testAppDb :: !ConnectionPool,
     testAppMockKafka :: !MockKafkaState,
     testAppHttpClient :: !HttpClient,
-    testAppMockHttp :: !MockHttpState
+    testAppMockHttp :: !MockHttpState,
+    testAppMetrics :: !Metrics
   }
 
 instance HasLogFunc TestApp where
@@ -67,21 +112,26 @@ instance {-# OVERLAPPING #-} HasKafkaProducer TestApp where
     let producer = MockProducer state
     mockProduceMessage producer topic key value
 
--- Use a custom HTTP client implementation that intercepts calls
--- We can't use overlapping instances for HasHttpClient easily, so we'll
--- need to modify the handler to allow injection of mock HTTP calls
 instance HasHttpClient TestApp where
   httpClientL = lens testAppHttpClient (\x y -> x {testAppHttpClient = y})
 
--- Helper to get mock HTTP state
+instance HasMetrics TestApp where
+  metricsL = lens testAppMetrics (\x y -> x {testAppMetrics = y})
+
 class HasMockHttp env where
   mockHttpL :: Lens' env MockHttpState
 
 instance HasMockHttp TestApp where
   mockHttpL = lens testAppMockHttp (\x y -> x {testAppMockHttp = y})
 
--- Test-specific server routes that use mock HTTP
-testExternalPostHandler :: (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasMockHttp env) => Int -> RIO env Server.ExternalPost
+-- ============================================================================
+-- Test server (overrides external post handler with mock)
+-- ============================================================================
+
+testExternalPostHandler ::
+  (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasMockHttp env) =>
+  Int ->
+  RIO env Server.ExternalPost
 testExternalPostHandler postId = do
   logInfoC $ "Fetching external post with ID: " <> displayShow postId
   mockState <- view mockHttpL
@@ -97,28 +147,83 @@ testExternalPostHandler postId = do
       logInfoC $ "Successfully fetched external post: " <> displayShow (Server.title post)
       return post
 
--- Test server with mock HTTP handler - we reuse most of the real server but override the external post handler
-testServer :: (HasLogFunc env, HasLogContext env, HasCorrelationId env, Server.HasConfig env Settings, HasDB env, HasKafkaProducer env, HasHttpClient env, HasMockHttp env) => Server.Routes (AsServerT (RIO env))
+testServer ::
+  ( HasLogFunc env,
+    HasLogContext env,
+    HasCorrelationId env,
+    Server.HasConfig env Settings,
+    HasDB env,
+    HasKafkaProducer env,
+    HasHttpClient env,
+    HasMockHttp env,
+    HasMetrics env
+  ) =>
+  Server.Routes (AsServerT (RIO env))
 testServer =
   let realServer = Server.server
    in realServer {Server.getExternalPost = testExternalPostHandler}
+
+-- ============================================================================
+-- Test JWT config (mock validate — no real JWT signing needed)
+-- ============================================================================
+
+-- | A mock JWTAuthConfig that maps known bearer token strings to claims.
+-- "token-user-N" → subject "user-N".
+mockJwtConfig :: JWTAuthConfig
+mockJwtConfig =
+  JWTAuthConfig
+    { jwtAuthValidate = \token ->
+        let prefix = "token-user-"
+         in if prefix `T.isPrefixOf` token
+              then do
+                let uid = T.drop (T.length prefix) token
+                return $
+                  Right
+                    AccessTokenClaims
+                      { atcSubject = "user-" <> uid,
+                        atcEmail = uid <> "@example.com",
+                        atcJti = "jti-" <> uid,
+                        atcScopes = ["read:accounts:own"]
+                      }
+              else return (Left "invalid token"),
+      jwtAuthSubjectPrefix = "user-"
+    }
+
+type TestAppContext = '[JWTAuthConfig]
+
+-- ============================================================================
+-- App setup
+-- ============================================================================
 
 withTestApp :: (Int -> TestApp -> IO ()) -> IO ()
 withTestApp action = do
   let testSettings =
         Settings
           { server = Server.Settings {Server.httpPort = 8080, Server.httpEnvironment = "test"},
-            kafka = KafkaPort.Settings {KafkaPort.kafkaBroker = "localhost:9092", KafkaPort.kafkaGroupId = "test-group", KafkaPort.kafkaDeadLetterTopic = "DEADLETTER", KafkaPort.kafkaMaxRetries = 3},
-            database = Database.Settings {Database.dbType = Database.SQLite, Database.dbConnectionString = ":memory:", Database.dbPoolSize = 1, Database.dbAutoMigrate = True}
+            kafka =
+              KafkaPort.Settings
+                { KafkaPort.kafkaBroker = "localhost:9092",
+                  KafkaPort.kafkaGroupId = "test-group",
+                  KafkaPort.kafkaDeadLetterTopic = "DEADLETTER",
+                  KafkaPort.kafkaMaxRetries = 3
+                },
+            database =
+              Database.Settings
+                { Database.dbType = Database.SQLite,
+                  Database.dbConnectionString = ":memory:",
+                  Database.dbPoolSize = 1,
+                  Database.dbAutoMigrate = True
+                },
+            jwtSecret = "test-secret"
           }
   logOptions <- logOptionsHandle stderr True
   withLogFunc logOptions $ \logFunc -> runRIO logFunc $ do
-    -- Setup mock Kafka, real database, HTTP client, and mock HTTP state
     mockKafkaState <- liftIO newMockKafkaState
     mockHttpState <- liftIO newMockHttpState
     pool <- liftIO $ Database.createConnectionPool testSettings.database
     liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
     httpClient <- HttpClient.initHttpClient
+    metrics <- liftIO initMetrics
 
     let testApp =
           TestApp
@@ -129,20 +234,58 @@ withTestApp action = do
               testAppDb = pool,
               testAppMockKafka = mockKafkaState,
               testAppHttpClient = httpClient,
-              testAppMockHttp = mockHttpState
+              testAppMockHttp = mockHttpState,
+              testAppMetrics = metrics
             }
 
     liftIO $ testWithApplication (pure $ testAppToWai testApp) $ \port' -> action port' testApp
 
 testAppToWai :: TestApp -> Application
-testAppToWai env = serve (Proxy @Server.API) (hoistServer (Proxy @Server.API) (runRIO env) testServer)
+testAppToWai env =
+  serveWithContext (Proxy @API) (mockJwtConfig :. EmptyContext) $
+    hoistServerWithContext
+      (Proxy @API)
+      (Proxy @TestAppContext)
+      (runRIO env)
+      testServer
+
+-- ============================================================================
+-- HTTP helpers
+-- ============================================================================
+
+getJSON :: Manager -> String -> [(String, String)] -> IO (Response BSL.ByteString)
+getJSON mgr url headers = do
+  req <- parseRequest url
+  httpLbs
+    req
+      { requestHeaders = map (\(k, v) -> (fromString k, fromString v)) headers
+      }
+    mgr
+
+postJSON :: Manager -> String -> BSL.ByteString -> IO (Response BSL.ByteString)
+postJSON mgr url body = do
+  req <- parseRequest url
+  httpLbs
+    req
+      { method = "POST",
+        requestBody = RequestBodyLBS body,
+        requestHeaders = [("Content-Type", "application/json")]
+      }
+    mgr
+
+baseUrl :: Int -> String
+baseUrl port = "http://localhost:" <> show port
+
+-- ============================================================================
+-- Tests
+-- ============================================================================
 
 spec :: Spec
 spec = describe "Server" $ do
   it "respond with 200 on status" $ do
     withTestApp $ \port' _ -> do
       manager <- newManager defaultManagerSettings
-      request <- parseRequest ("http://localhost:" <> show port' <> "/status")
+      request <- parseRequest (baseUrl port' <> "/status")
       response <- httpLbs request manager
       responseStatus response `shouldBe` status200
       responseBody response `shouldBe` "\"OK\""
@@ -151,14 +294,13 @@ spec = describe "Server" $ do
     withTestApp $ \port' testApp -> do
       manager <- newManager defaultManagerSettings
 
-      -- Create account request
       let createReq =
             CreateAccountRequest
               { createAccountName = "John Doe",
                 createAccountEmail = "john@example.com"
               }
 
-      initialRequest <- parseRequest ("http://localhost:" <> show port' <> "/accounts")
+      initialRequest <- parseRequest (baseUrl port' <> "/accounts")
       let request =
             initialRequest
               { method = "POST",
@@ -169,17 +311,14 @@ spec = describe "Server" $ do
       response <- httpLbs request manager
       responseStatus response `shouldBe` status200
 
-      -- Verify the response contains the created account
       let maybeAccount = decode @Account (responseBody response)
       maybeAccount `shouldSatisfy` isJust
-
       case maybeAccount of
         Just account -> do
           accountName account `shouldBe` "John Doe"
           accountEmail account `shouldBe` "john@example.com"
         Nothing -> expectationFailure "Failed to decode account response"
 
-      -- Verify Kafka message was produced
       let mockState = testAppMockKafka testApp
       messages <- atomically $ readTVar (messageQueue mockState)
       Seq.length messages `shouldBe` 1
@@ -187,11 +326,8 @@ spec = describe "Server" $ do
       case Seq.viewl messages of
         msg Seq.:< _ -> do
           qmTopic msg `shouldBe` TopicName "account-created"
-
-          -- Verify message content (qmValue is now a Value directly)
           let decoded = decode @AccountCreatedEvent (encode (qmValue msg))
           decoded `shouldSatisfy` isJust
-
           case decoded of
             Just event -> do
               eventAccountId event `shouldBe` 1
@@ -200,16 +336,13 @@ spec = describe "Server" $ do
             Nothing -> expectationFailure "Failed to decode AccountCreatedEvent"
         Seq.EmptyL -> expectationFailure "No messages in queue"
 
-      -- Process messages through the consumer
       let mockConsumer = MockConsumer mockState
           consumerCfg = KafkaPort.consumerConfig (Settings.kafka $ testAppSettings testApp)
       runRIO testApp $ processAllMessages mockConsumer consumerCfg
 
-      -- Verify messages were consumed
       consumed <- atomically $ readTVar (consumedMessages mockState)
       Seq.length consumed `shouldBe` 1
 
-      -- Verify the message queue is now empty (all messages processed)
       remainingMessages <- atomically $ readTVar (messageQueue mockState)
       Seq.length remainingMessages `shouldBe` 0
 
@@ -217,7 +350,6 @@ spec = describe "Server" $ do
     withTestApp $ \port' testApp -> do
       let mockHttpState = testAppMockHttp testApp
 
-      -- Setup mock response for the external API call
       let mockPost =
             Server.ExternalPost
               { Server.userId = 1,
@@ -229,14 +361,11 @@ spec = describe "Server" $ do
 
       manager <- newManager defaultManagerSettings
 
-      -- Call the endpoint that will trigger the HTTP client (but it's mocked)
-      request <- parseRequest ("http://localhost:" <> show port' <> "/external/posts/1")
+      request <- parseRequest (baseUrl port' <> "/external/posts/1")
       response <- httpLbs request manager
 
-      -- Verify we got a 200 response
       responseStatus response `shouldBe` status200
 
-      -- Verify the response body contains the mocked data
       let maybePost = decode @Server.ExternalPost (responseBody response)
       maybePost `shouldSatisfy` isJust
 
@@ -248,32 +377,110 @@ spec = describe "Server" $ do
           Server.body post `shouldBe` "Mock post body content"
         Nothing -> expectationFailure "Failed to decode ExternalPost response"
 
-      -- Get all requests and verify details
       requests <- getRequests mockHttpState
 
-      -- Debug: print requests if test fails
       when (Seq.length requests == 0) $
         expectationFailure "No HTTP requests were recorded in mock"
 
       Seq.length requests `shouldBe` 1
 
-      -- Verify the actual request details
       case Seq.viewl requests of
         req Seq.:< _ -> do
           mrMethod req `shouldBe` "GET"
           mrUrl req `shouldBe` "https://jsonplaceholder.typicode.com/posts/1"
-
-      -- Verify the HTTP request was made as expected using assertion helper
       wasMade <- assertRequestMade mockHttpState "GET" "https://jsonplaceholder.typicode.com/posts/1"
       wasMade `shouldBe` True
 
-      case Seq.viewl requests of
+      requests' <- getRequests mockHttpState
+      case Seq.viewl requests' of
         req Seq.:< _ -> do
-          -- Verify correlation ID was included in headers
           let hasCorrelationId = any (\(name, _) -> name == "X-Correlation-Id") (mrHeaders req)
           hasCorrelationId `shouldBe` True
         Seq.EmptyL -> expectationFailure "No requests were recorded"
 
+  it "creates account automatically on user-registered Kafka event" $ do
+    withTestApp $ \port' testApp -> do
+      let mockKafka = testAppMockKafka testApp
+          event = UserRegisteredEvent {ureUserId = 42, ureEmail = "eve@example.com"}
+      runRIO testApp $ mockProduceMessage (MockProducer mockKafka) (TopicName "user-registered") Nothing event
+
+      let consumerCfg = KafkaPort.consumerConfig (Settings.kafka (testAppSettings testApp))
+      runRIO testApp $ processAllMessages (MockConsumer mockKafka) consumerCfg
+
+      manager <- newManager defaultManagerSettings
+      req <- parseRequest (baseUrl port' <> "/accounts/42")
+      resp <-
+        httpLbs
+          req {requestHeaders = [("Authorization", "Bearer token-user-42")]}
+          manager
+      statusCode (responseStatus resp) `shouldBe` 200
+
+  describe "GET /accounts/:id (RequireOwner)" $ do
+    it "returns 200 when JWT subject matches the account ID" $ do
+      withTestApp $ \port' _ -> do
+        manager <- newManager defaultManagerSettings
+
+        -- Create account → gets ID 1
+        let createReq = CreateAccountRequest "Alice" "alice@example.com"
+        createInitReq <- parseRequest (baseUrl port' <> "/accounts")
+        _ <-
+          httpLbs
+            createInitReq
+              { method = "POST",
+                requestBody = RequestBodyLBS (encode createReq),
+                requestHeaders = [("Content-Type", "application/json")]
+              }
+            manager
+
+        -- "token-user-1" → subject "user-1" → matches "user-" <> "1"
+        req <- parseRequest (baseUrl port' <> "/accounts/1")
+        resp <-
+          httpLbs
+            req {requestHeaders = [("Authorization", "Bearer token-user-1")]}
+            manager
+
+        statusCode (responseStatus resp) `shouldBe` 200
+
+    it "returns 403 when JWT subject belongs to a different user" $ do
+      withTestApp $ \port' _ -> do
+        manager <- newManager defaultManagerSettings
+
+        let createReq = CreateAccountRequest "Bob" "bob@example.com"
+        createInitReq <- parseRequest (baseUrl port' <> "/accounts")
+        _ <-
+          httpLbs
+            createInitReq
+              { method = "POST",
+                requestBody = RequestBodyLBS (encode createReq),
+                requestHeaders = [("Content-Type", "application/json")]
+              }
+            manager
+
+        -- "token-user-99" → subject "user-99" → does NOT match "user-1"
+        req <- parseRequest (baseUrl port' <> "/accounts/1")
+        resp <-
+          httpLbs
+            req {requestHeaders = [("Authorization", "Bearer token-user-99")]}
+            manager
+
+        statusCode (responseStatus resp) `shouldBe` 403
+
+    it "returns 401 when no Authorization header is present" $ do
+      withTestApp $ \port' _ -> do
+        manager <- newManager defaultManagerSettings
+        req <- parseRequest (baseUrl port' <> "/accounts/1")
+        resp <- httpLbs req manager
+        statusCode (responseStatus resp) `shouldBe` 401
+
+    it "returns 401 when the token is invalid" $ do
+      withTestApp $ \port' _ -> do
+        manager <- newManager defaultManagerSettings
+        req <- parseRequest (baseUrl port' <> "/accounts/1")
+        resp <-
+          httpLbs
+            req {requestHeaders = [("Authorization", "Bearer not-a-valid-token")]}
+            manager
+        statusCode (responseStatus resp) `shouldBe` 401
+
 main :: IO ()
-main = hspec $ do
-  spec
+main = hspec spec

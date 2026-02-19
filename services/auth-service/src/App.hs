@@ -11,23 +11,30 @@ where
 import Control.Monad.Logger (runStderrLoggingT)
 import qualified Data.Map.Strict as Map
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
-import qualified Ports.Server as Server
-import qualified Ports.Kafka as KafkaPort
 import Kafka.Producer (KafkaProducer)
-import Models.Account (migrateAll)
+import Models.User (migrateAll)
 import Network.Wai.Handler.Warp (run)
+import qualified Ports.Consumer as KafkaPort
+import qualified Ports.Server as Server
 import RIO
 import Servant
-import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), correlationIdMiddleware, defaultCorrelationId, extractCorrelationId, logInfoC, unCorrelationId)
+import Service.CorrelationId
+  ( CorrelationId (..),
+    HasCorrelationId (..),
+    HasLogContext (..),
+    correlationIdMiddleware,
+    defaultCorrelationId,
+    extractCorrelationId,
+    logInfoC,
+    unCorrelationId,
+  )
 import Service.Database (HasDB (..))
 import qualified Service.Database as Database
+import Service.HttpClient (HasHttpClient (..), HttpClient)
+import qualified Service.HttpClient as HttpClient
 import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
-import Service.HttpClient (HttpClient, HasHttpClient (..))
-import qualified Service.HttpClient as HttpClient
-import Service.Auth (JWTAuthConfig, makeJWTAuthConfig)
-import Service.Metrics (Metrics, HasMetrics (..), initMetrics, metricsHandler)
-import Service.Metrics.Optional (OptionalDatabaseMetrics, OptionalKafkaMetrics)
+import Service.Metrics (HasMetrics (..), Metrics, initMetrics)
 import Settings (Settings (..), server)
 
 data App = App
@@ -38,8 +45,7 @@ data App = App
     db :: !ConnectionPool,
     kafkaProducer :: !KafkaProducer,
     httpClient :: !HttpClient,
-    appMetrics :: !Metrics,
-    appJwtConfig :: !JWTAuthConfig
+    appMetrics :: !Metrics
   }
 
 instance HasLogFunc App where
@@ -54,6 +60,7 @@ instance HasCorrelationId App where
 instance Server.HasConfig App Settings where
   settingsL = lens appSettings (\x y -> x {appSettings = y})
   httpSettings = server
+  jwtSettings = jwt
 
 instance HasDB App where
   dbL = lens db (\x y -> x {db = y})
@@ -76,9 +83,6 @@ instance HasHttpClient App where
 instance HasMetrics App where
   metricsL = lens appMetrics (\x y -> x {appMetrics = y})
 
--- OptionalKafkaMetrics and OptionalDatabaseMetrics instances are provided
--- automatically via overlapping instances from Service.Metrics
-
 initializeApp :: Settings -> LogFunc -> IO App
 initializeApp settings logFunc = runRIO logFunc $ do
   let dbSettings = database settings
@@ -96,7 +100,6 @@ initializeApp settings logFunc = runRIO logFunc $ do
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
-      jwtCfg = makeJWTAuthConfig (encodeUtf8 (jwtSecret settings)) "user-"
 
   return
     App
@@ -107,8 +110,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
         db = pool,
         kafkaProducer = producer,
         httpClient = client,
-        appMetrics = metrics,
-        appJwtConfig = jwtCfg
+        appMetrics = metrics
       }
 
 runApp :: App -> IO ()
@@ -134,7 +136,7 @@ runApp env = do
       logInfoC "Starting Kafka consumer"
       Kafka.consumerLoop consumer consumerCfg
 
-type AppContext = '[JWTAuthConfig, App]
+type AppContext = '[App]
 
 app :: App -> Application
 app baseEnv = correlationIdMiddleware $ \req ->
@@ -153,4 +155,4 @@ app baseEnv = correlationIdMiddleware $ \req ->
     api = Proxy
 
     appContext :: App -> Context AppContext
-    appContext e = appJwtConfig e :. e :. EmptyContext
+    appContext e = e :. EmptyContext

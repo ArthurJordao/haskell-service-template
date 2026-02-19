@@ -35,6 +35,15 @@ dependencies:
 - http-types
 - bytestring
 - stm
+- servant
+- servant-server
+- jose
+- crypton
+- uuid
+- lens
+- microlens
+- mtl
+- time
 
 ghc-options:
 - -Wall
@@ -80,6 +89,8 @@ library:
     - Service.Metrics.Kafka
     - Service.Metrics.Database
     - Service.Metrics.Optional
+    - Service.Auth
+    - Service.Events
 
 tests:
   haskell-service-lib-test:
