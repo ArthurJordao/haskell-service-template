@@ -29,6 +29,7 @@ import Service.CorrelationId
     unCorrelationId,
   )
 import Service.Database (HasDB (..))
+import Service.Metrics.Database (recordDatabaseMetricsInternal)
 import qualified Service.Database as Database
 import Service.HttpClient (HasHttpClient (..), HttpClient)
 import qualified Service.HttpClient as HttpClient
@@ -64,6 +65,7 @@ instance Server.HasConfig App Settings where
 
 instance HasDB App where
   dbL = lens db (\x y -> x {db = y})
+  dbRecordQueryMetrics = recordDatabaseMetricsInternal
 
 class HasKafkaProducerHandle env where
   kafkaProducerL :: Lens' env KafkaProducer

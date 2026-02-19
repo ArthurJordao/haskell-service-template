@@ -14,13 +14,12 @@ import Service.CorrelationId (HasLogContext (..), logInfoC, logWarnC)
 import Service.Database (HasDB (..), runSqlPoolWithCid)
 import Service.Events (UserRegisteredEvent (..))
 import Service.Kafka
-import Service.Metrics.Optional (OptionalDatabaseMetrics)
-
+import Service.Metrics.Kafka (HasKafkaMetrics, recordKafkaMetricsInternal, recordKafkaOffsetMetricsInternal)
 consumerConfig ::
   ( HasLogFunc env,
     HasLogContext env,
     HasDB env,
-    OptionalDatabaseMetrics env
+    HasKafkaMetrics env
   ) =>
   Settings ->
   ConsumerConfig env
@@ -43,7 +42,9 @@ consumerConfig kafkaSettings =
             }
         ],
       deadLetterTopic = TopicName (kafkaDeadLetterTopic kafkaSettings),
-      maxRetries = kafkaMaxRetries kafkaSettings
+      maxRetries = kafkaMaxRetries kafkaSettings,
+      consumerRecordMessageMetrics = recordKafkaMetricsInternal,
+      consumerRecordOffsetMetrics = recordKafkaOffsetMetricsInternal
     }
 
 testTopicHandler :: (HasLogFunc env, HasLogContext env) => Value -> RIO env ()
@@ -57,8 +58,7 @@ accountCreatedHandler jsonValue = do
 userRegisteredHandler ::
   ( HasLogFunc env,
     HasLogContext env,
-    HasDB env,
-    OptionalDatabaseMetrics env
+    HasDB env
   ) =>
   Value ->
   RIO env ()

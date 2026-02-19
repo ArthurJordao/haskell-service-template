@@ -34,7 +34,6 @@ import Service.CorrelationId (HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
 import Service.Kafka (HasKafkaProducer (..))
 import Service.Metrics (HasMetrics (..), metricsHandler)
-import Service.Metrics.Optional (OptionalDatabaseMetrics)
 import Service.Server
 
 -- ============================================================================
@@ -143,8 +142,7 @@ server ::
     HasConfig env settings,
     HasDB env,
     HasKafkaProducer env,
-    HasMetrics env,
-    OptionalDatabaseMetrics env
+    HasMetrics env
   ) =>
   Routes (AsServerT (RIO env))
 server =
@@ -173,8 +171,7 @@ registerHandler ::
     HasLogContext env,
     HasConfig env settings,
     HasDB env,
-    HasKafkaProducer env,
-    OptionalDatabaseMetrics env
+    HasKafkaProducer env
   ) =>
   RegisterRequest ->
   RIO env AuthTokens
@@ -200,8 +197,7 @@ loginHandler ::
   ( HasLogFunc env,
     HasLogContext env,
     HasConfig env settings,
-    HasDB env,
-    OptionalDatabaseMetrics env
+    HasDB env
   ) =>
   LoginRequest ->
   RIO env AuthTokens
@@ -221,8 +217,7 @@ refreshHandler ::
   ( HasLogFunc env,
     HasLogContext env,
     HasConfig env settings,
-    HasDB env,
-    OptionalDatabaseMetrics env
+    HasDB env
   ) =>
   RefreshRequest ->
   RIO env AuthTokens
@@ -264,8 +259,7 @@ logoutHandler ::
   ( HasLogFunc env,
     HasLogContext env,
     HasConfig env settings,
-    HasDB env,
-    OptionalDatabaseMetrics env
+    HasDB env
   ) =>
   LogoutRequest ->
   RIO env NoContent
@@ -301,8 +295,7 @@ issueTokenPair ::
   ( HasLogFunc env,
     HasLogContext env,
     HasConfig env settings,
-    HasDB env,
-    OptionalDatabaseMetrics env
+    HasDB env
   ) =>
   UserId ->
   Text ->

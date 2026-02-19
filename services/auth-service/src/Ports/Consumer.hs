@@ -5,7 +5,7 @@ module Ports.Consumer
 where
 
 import Kafka.Consumer (TopicName (..))
-import RIO ()
+import RIO
 import Service.Kafka
 
 consumerConfig :: Settings -> ConsumerConfig env
@@ -15,5 +15,7 @@ consumerConfig kafkaSettings =
       groupId = kafkaGroupId kafkaSettings,
       topicHandlers = [],
       deadLetterTopic = TopicName (kafkaDeadLetterTopic kafkaSettings),
-      maxRetries = kafkaMaxRetries kafkaSettings
+      maxRetries = kafkaMaxRetries kafkaSettings,
+      consumerRecordMessageMetrics = \_ _ _ _ -> return (),
+      consumerRecordOffsetMetrics = \_ _ _ _ -> return ()
     }

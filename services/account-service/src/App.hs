@@ -20,14 +20,14 @@ import RIO
 import Servant
 import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), correlationIdMiddleware, defaultCorrelationId, extractCorrelationId, logInfoC, unCorrelationId)
 import Service.Database (HasDB (..))
+import Service.Metrics.Database (recordDatabaseMetricsInternal)
 import qualified Service.Database as Database
 import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
 import Service.HttpClient (HttpClient, HasHttpClient (..))
 import qualified Service.HttpClient as HttpClient
 import Service.Auth (JWTAuthConfig, makeJWTAuthConfig)
-import Service.Metrics (Metrics, HasMetrics (..), initMetrics, metricsHandler)
-import Service.Metrics.Optional (OptionalDatabaseMetrics, OptionalKafkaMetrics)
+import Service.Metrics (Metrics, HasMetrics (..), initMetrics)
 import Settings (Settings (..), server)
 
 data App = App
@@ -57,6 +57,7 @@ instance Server.HasConfig App Settings where
 
 instance HasDB App where
   dbL = lens db (\x y -> x {db = y})
+  dbRecordQueryMetrics = recordDatabaseMetricsInternal
 
 class HasKafkaProducerHandle env where
   kafkaProducerL :: Lens' env KafkaProducer

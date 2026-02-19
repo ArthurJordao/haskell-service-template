@@ -29,7 +29,6 @@ import qualified RIO.ByteString.Lazy as BL
 import RIO.Text (pack, unpack)
 import Text.Read (reads)
 import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), appendCorrelationId, generateCorrelationId, logErrorC, logInfoC, logWarnC)
-import Service.Metrics.Optional (OptionalKafkaMetrics (..))
 import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 import System.IO.Error (mkIOError, userErrorType)
 
@@ -71,7 +70,9 @@ data ConsumerConfig env = ConsumerConfig
     groupId :: !Text,
     topicHandlers :: ![TopicHandler env],
     deadLetterTopic :: !TopicName,
-    maxRetries :: !Int
+    maxRetries :: !Int,
+    consumerRecordMessageMetrics :: Text -> UTCTime -> UTCTime -> Either SomeException () -> RIO env (),
+    consumerRecordOffsetMetrics :: Text -> Int -> Int -> Int -> RIO env ()
   }
 
 data DeadLetterMessage = DeadLetterMessage
@@ -214,7 +215,7 @@ sendToDeadLetter originalTopic messageBytes headers errorType errorDetails cid =
   produceKafkaMessage (TopicName "DEADLETTER") Nothing dlm
 
 consumerLoop ::
-  (HasLogFunc env, HasCorrelationId env, HasLogContext env, HasKafkaProducer env, OptionalKafkaMetrics env) =>
+  (HasLogFunc env, HasCorrelationId env, HasLogContext env, HasKafkaProducer env) =>
   KafkaConsumer ->
   ConsumerConfig env ->
   RIO env ()
@@ -275,15 +276,11 @@ consumerLoop consumer config = do
                       result <- tryAny (h jsonValue)
                       end <- liftIO getCurrentTime
 
-                      -- Automatically record metrics if available
-                      recordKafkaMessageMetrics topicText start end result
+                      -- Record metrics via config callbacks
+                      consumerRecordMessageMetrics config topicText start end result
 
-                      -- Record offset metrics
-                      -- Note: We record current offset. High water mark would require
-                      -- querying Kafka metadata which may not be available in all versions.
-                      -- For now, we use current offset + 1 as a proxy for high water mark.
                       let highWaterMark = currentOffset + 1
-                      recordKafkaOffsetMetrics topicText partitionId currentOffset highWaterMark
+                      consumerRecordOffsetMetrics config topicText partitionId currentOffset highWaterMark
 
                       case result of
                         Left ex -> do

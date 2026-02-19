@@ -17,7 +17,6 @@ import Database.Persist.Sql (ConnectionPool, SqlBackend)
 import GHC.Conc (unsafeIOToSTM)
 import RIO
 import Service.Metrics.Core
-import Service.Metrics.Optional
 
 -- ============================================================================
 -- Database Metrics Data Structure

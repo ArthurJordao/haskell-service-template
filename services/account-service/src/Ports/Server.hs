@@ -21,7 +21,6 @@ import Servant
 import Servant.Server.Generic (AsServerT)
 import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..), runSqlPoolWithCid)
-import Service.Metrics.Optional (OptionalDatabaseMetrics)
 import Service.Kafka (HasKafkaProducer (..))
 import Service.Auth (AccessTokenClaims (..), RequireOwner)
 import Service.HttpClient (HasHttpClient, callServiceGet)
@@ -100,7 +99,7 @@ type API = NamedRoutes Routes
 -- Server Implementation
 -- ============================================================================
 
-server :: (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasConfig env settings, HasDB env, HasKafkaProducer env, HasHttpClient env, HasMetrics env, OptionalDatabaseMetrics env) => Routes (AsServerT (RIO env))
+server :: (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasConfig env settings, HasDB env, HasKafkaProducer env, HasHttpClient env, HasMetrics env) => Routes (AsServerT (RIO env))
 server =
   Routes
     { status = statusHandler,
@@ -118,14 +117,14 @@ statusHandler = do
   logInfoC ("Status endpoint called env level" <> displayShow (httpEnvironment serverSettings))
   return "OK"
 
-accountsHandler :: (HasLogFunc env, HasLogContext env, HasDB env, OptionalDatabaseMetrics env) => RIO env [Account]
+accountsHandler :: (HasLogFunc env, HasLogContext env, HasDB env) => RIO env [Account]
 accountsHandler = do
   logInfoC "Accounts endpoint called"
   pool <- view dbL
   accounts <- runSqlPoolWithCid (selectList [] []) pool
   return $ map entityVal accounts
 
-accountByIdHandler :: (HasLogFunc env, HasLogContext env, HasDB env, OptionalDatabaseMetrics env) => Int64 -> AccessTokenClaims -> RIO env Account
+accountByIdHandler :: (HasLogFunc env, HasLogContext env, HasDB env) => Int64 -> AccessTokenClaims -> RIO env Account
 accountByIdHandler accId _claims = do
   logInfoC $ "Account endpoint called with ID: " <> displayShow accId
   pool <- view dbL
@@ -134,7 +133,7 @@ accountByIdHandler accId _claims = do
     Just account -> return account
     Nothing -> throwM err404 {errBody = "Account not found"}
 
-createAccountHandler :: (HasLogFunc env, HasLogContext env, HasDB env, HasKafkaProducer env, OptionalDatabaseMetrics env) => CreateAccountRequest -> RIO env Account
+createAccountHandler :: (HasLogFunc env, HasLogContext env, HasDB env, HasKafkaProducer env) => CreateAccountRequest -> RIO env Account
 createAccountHandler req = do
   logInfoC $ "Creating account: " <> displayShow (createAccountName req)
   pool <- view dbL

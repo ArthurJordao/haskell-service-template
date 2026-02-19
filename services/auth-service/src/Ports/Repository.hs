@@ -22,9 +22,8 @@ import qualified Models.User as User
 import RIO
 import Service.CorrelationId (HasLogContext (..))
 import Service.Database (HasDB (..), runSqlPoolWithCid)
-import Service.Metrics.Optional (OptionalDatabaseMetrics)
 
-type Repo env = (HasLogFunc env, HasLogContext env, HasDB env, OptionalDatabaseMetrics env)
+type Repo env = (HasLogFunc env, HasLogContext env, HasDB env)
 
 findUserByEmail :: Repo env => Text -> RIO env (Maybe (Entity User))
 findUserByEmail email = do

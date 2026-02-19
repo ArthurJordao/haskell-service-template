@@ -37,7 +37,6 @@ library
       Service.Metrics.Http
       Service.Metrics.Kafka
       Service.Metrics.Database
-      Service.Metrics.Optional
       Service.Auth
       Service.Events
   other-modules:

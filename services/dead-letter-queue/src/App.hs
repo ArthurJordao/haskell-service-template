@@ -23,7 +23,6 @@ import Service.Database (HasDB (..))
 import qualified Service.Database as Database
 import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
-import Service.Metrics.Optional (OptionalDatabaseMetrics, OptionalKafkaMetrics)
 import Settings (Settings (..), server)
 
 data App = App
@@ -62,10 +61,6 @@ instance HasKafkaProducer App where
     producer <- view kafkaProducerL
     cid <- view correlationIdL
     Kafka.produceMessageWithCid producer topic key value cid
-
--- Use default no-op implementations for optional metrics
-instance OptionalKafkaMetrics App
-instance OptionalDatabaseMetrics App
 
 initializeApp :: Settings -> LogFunc -> IO App
 initializeApp settings logFunc = runRIO logFunc $ do

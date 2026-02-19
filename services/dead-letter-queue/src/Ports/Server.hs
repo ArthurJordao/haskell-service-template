@@ -25,7 +25,6 @@ import Servant.Server.Generic (AsServerT)
 import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), logInfoC, logErrorC)
 import Service.Database (HasDB (..), runSqlPoolWithCid)
 import Service.Kafka (HasKafkaProducer (..))
-import Service.Metrics.Optional (OptionalDatabaseMetrics)
 import Service.Server
 
 -- ============================================================================
@@ -124,7 +123,7 @@ type API = NamedRoutes Routes
 -- Server Implementation
 -- ============================================================================
 
-server :: (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasConfig env settings, HasDB env, HasKafkaProducer env, OptionalDatabaseMetrics env) => Routes (AsServerT (RIO env))
+server :: (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasConfig env settings, HasDB env, HasKafkaProducer env) => Routes (AsServerT (RIO env))
 server =
   Routes
     { status = statusHandler,
@@ -142,7 +141,7 @@ statusHandler = do
   return "OK"
 
 listDeadLettersHandler ::
-  (HasLogFunc env, HasLogContext env, HasDB env, OptionalDatabaseMetrics env) =>
+  (HasLogFunc env, HasLogContext env, HasDB env) =>
   Maybe Text ->
   Maybe Text ->
   Maybe Text ->
@@ -160,7 +159,7 @@ listDeadLettersHandler maybeStatus maybeTopic maybeErrorType = do
   return $ map entityToResponse entities
 
 getDeadLetterHandler ::
-  (HasLogFunc env, HasLogContext env, HasDB env, OptionalDatabaseMetrics env) =>
+  (HasLogFunc env, HasLogContext env, HasDB env) =>
   Int64 ->
   RIO env DeadLetterResponse
 getDeadLetterHandler dlqId = do
@@ -172,7 +171,7 @@ getDeadLetterHandler dlqId = do
     Nothing -> throwM err404 {errBody = "Dead letter message not found"}
 
 replayMessageHandler ::
-  (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasDB env, HasKafkaProducer env, OptionalDatabaseMetrics env) =>
+  (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasDB env, HasKafkaProducer env) =>
   Int64 ->
   RIO env ReplayResult
 replayMessageHandler dlqId = do
@@ -228,7 +227,7 @@ replayMessageHandler dlqId = do
               return $ ReplayResult dlqId True Nothing
 
 replayBatchHandler ::
-  (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasDB env, HasKafkaProducer env, OptionalDatabaseMetrics env) =>
+  (HasLogFunc env, HasLogContext env, HasCorrelationId env, HasDB env, HasKafkaProducer env) =>
   [Int64] ->
   RIO env [ReplayResult]
 replayBatchHandler ids = do
@@ -236,7 +235,7 @@ replayBatchHandler ids = do
   mapM replayMessageHandler ids
 
 discardMessageHandler ::
-  (HasLogFunc env, HasLogContext env, HasDB env, OptionalDatabaseMetrics env) =>
+  (HasLogFunc env, HasLogContext env, HasDB env) =>
   Int64 ->
   RIO env NoContent
 discardMessageHandler dlqId = do
@@ -258,7 +257,7 @@ discardMessageHandler dlqId = do
       return NoContent
 
 getStatsHandler ::
-  (HasLogFunc env, HasLogContext env, HasDB env, OptionalDatabaseMetrics env) =>
+  (HasLogFunc env, HasLogContext env, HasDB env) =>
   RIO env DLQStats
 getStatsHandler = do
   logInfoC "Getting DLQ statistics"
