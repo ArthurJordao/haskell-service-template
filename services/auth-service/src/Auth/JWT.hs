@@ -11,7 +11,7 @@ module Auth.JWT
   )
 where
 
-import Service.Auth (AccessTokenClaims (..))
+import Service.Auth (AccessTokenClaims (..), JwtAccessClaims (..))
 
 import Control.Monad.Except (runExceptT)
 import Crypto.JOSE (encodeCompact)
@@ -30,13 +30,19 @@ import Crypto.JWT
     emptyClaimsSet,
     newJWSHeader,
     signClaims,
-    unregisteredClaims,
     verifyClaims,
   )
 import Crypto.JOSE.JWA.JWS (Alg (HS256))
-import Data.Aeson (Result (..), ToJSON, Value (String), fromJSON, toJSON)
+import Data.Aeson
+  ( Result (..),
+    ToJSON,
+    Value (Object, String),
+    fromJSON,
+    object,
+    toJSON,
+    (.=),
+  )
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Map.Strict as Map
 import Data.Time (NominalDiffTime, UTCTime, addUTCTime, nominalDay)
 import Data.UUID.V4 (nextRandom)
 import qualified Data.UUID as UUID
@@ -69,28 +75,41 @@ generateJti = UUID.toText <$> nextRandom
 defaultUserScopes :: [Text]
 defaultUserScopes = ["read:accounts:own", "write:accounts:own"]
 
+-- | Merge extra JSON fields into a ClaimsSet via a JSON round-trip.
+-- This avoids the deprecated unregisteredClaims lens.
+withExtraClaims :: ClaimsSet -> Value -> Either Text ClaimsSet
+withExtraClaims base extras =
+  case (toJSON base, extras) of
+    (Object b, Object e) ->
+      case fromJSON (Object (b <> e)) of
+        Success cs -> Right cs
+        Error err -> Left (pack err)
+    _ -> Left "Unexpected non-Object JSON for ClaimsSet"
+
 -- | Issue a signed access JWT. Returns compact-encoded token text.
 issueAccessToken :: JWTSettings -> Int64 -> Text -> UTCTime -> IO (Either Text Text)
 issueAccessToken settings userId email issuedAt = do
   jti <- generateJti
   let expiry = addUTCTime (accessExpiry settings) issuedAt
       sub = fromString ("user-" <> show userId)
-      claims =
+      baseClaims =
         emptyClaimsSet
           & claimSub ?~ sub
           & claimIat ?~ NumericDate issuedAt
           & claimExp ?~ NumericDate expiry
           & claimJti ?~ fromString (unpack jti)
-          & unregisteredClaims
-            .~ Map.fromList
-              [ ("type", String "customer"),
-                ("email", String email),
-                ("scopes", toJSON defaultUserScopes)
-              ]
-  result <- runExceptT $ signClaims (jwtKey settings) (newJWSHeader ((), HS256)) claims
-  case result of
-    Left (err :: JWTError) -> return $ Left (pack $ show err)
-    Right jwt -> return $ Right $ decodeUtf8Lenient $ BL.toStrict $ encodeCompact jwt
+      extras = object
+        [ "type" .= ("customer" :: Text)
+        , "email" .= email
+        , "scopes" .= defaultUserScopes
+        ]
+  case withExtraClaims baseClaims extras of
+    Left err -> return $ Left err
+    Right claims -> do
+      result <- runExceptT $ signClaims (jwtKey settings) (newJWSHeader ((), HS256)) claims
+      case result of
+        Left (err :: JWTError) -> return $ Left (pack $ show err)
+        Right jwt -> return $ Right $ decodeUtf8Lenient $ BL.toStrict $ encodeCompact jwt
 
 -- | Issue a signed refresh JWT. Returns (jti, compactTokenText).
 issueRefreshToken :: JWTSettings -> Int64 -> UTCTime -> IO (Either Text (Text, Text))
@@ -98,20 +117,22 @@ issueRefreshToken settings userId issuedAt = do
   jti <- generateJti
   let expiry = addUTCTime (refreshExpiry settings) issuedAt
       sub = fromString ("user-" <> show userId)
-      claims =
+      baseClaims =
         emptyClaimsSet
           & claimSub ?~ sub
           & claimIat ?~ NumericDate issuedAt
           & claimExp ?~ NumericDate expiry
           & claimJti ?~ fromString (unpack jti)
-          & unregisteredClaims
-            .~ Map.fromList [("type", String "refresh")]
-  result <- runExceptT $ signClaims (jwtKey settings) (newJWSHeader ((), HS256)) claims
-  case result of
-    Left (err :: JWTError) -> return $ Left (pack $ show err)
-    Right jwt ->
-      return $
-        Right (jti, decodeUtf8Lenient $ BL.toStrict $ encodeCompact jwt)
+      extras = object ["type" .= ("refresh" :: Text)]
+  case withExtraClaims baseClaims extras of
+    Left err -> return $ Left err
+    Right claims -> do
+      result <- runExceptT $ signClaims (jwtKey settings) (newJWSHeader ((), HS256)) claims
+      case result of
+        Left (err :: JWTError) -> return $ Left (pack $ show err)
+        Right jwt ->
+          return $
+            Right (jti, decodeUtf8Lenient $ BL.toStrict $ encodeCompact jwt)
 
 -- | Verify an access token and extract typed claims.
 verifyAccessToken :: JWTSettings -> Text -> IO (Either Text AccessTokenClaims)
@@ -138,18 +159,17 @@ verifyRefreshTokenJti settings tokenText = do
         Nothing -> Left "Missing jti in refresh token"
         Just jtiSuri -> Right (suriToText jtiSuri)
 
--- | Extract typed claims from a raw ClaimsSet.
+-- | Extract typed claims from a verified ClaimsSet.
+-- Custom fields are recovered via JSON round-trip into JwtAccessClaims.
 extractAccessClaims :: ClaimsSet -> Either Text AccessTokenClaims
 extractAccessClaims claims = do
   sub <- maybe (Left "Missing sub claim") (Right . suriToText) (claims ^. claimSub)
   jti <- maybe (Left "Missing jti claim") (Right . suriToText) (claims ^. claimJti)
-  let extra = claims ^. unregisteredClaims
-  email <- lookupText "email" extra
-  let scopes = case Map.lookup "scopes" extra of
-        Just v -> case fromJSON v of
-          Success (s :: [Text]) -> s
-          _ -> defaultUserScopes
-        Nothing -> defaultUserScopes
+  jac <- case fromJSON (toJSON claims) :: Result JwtAccessClaims of
+    Error err -> Left (pack err)
+    Success j -> Right j
+  email <- maybe (Left "Missing or invalid field: email") Right (jacEmail jac)
+  let scopes = fromMaybe defaultUserScopes (jacScopes jac)
   Right
     AccessTokenClaims
       { atcSubject = sub,
@@ -163,9 +183,3 @@ suriToText :: (ToJSON a) => a -> Text
 suriToText suri = case toJSON suri of
   String t -> t
   other -> pack $ show other
-
-lookupText :: Text -> Map.Map Text Value -> Either Text Text
-lookupText key m =
-  case Map.lookup key m of
-    Just (String t) -> Right t
-    _ -> Left $ "Missing or invalid field: " <> key

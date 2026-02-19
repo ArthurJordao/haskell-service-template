@@ -5,6 +5,7 @@
 
 module Service.Auth
   ( AccessTokenClaims (..),
+    JwtAccessClaims (..),
     JWTAuthConfig (..),
     makeJWTAuthConfig,
     JWTAuth,
@@ -16,21 +17,31 @@ import Control.Monad.Except (ExceptT (..), runExceptT)
 import Crypto.JOSE.JWK (JWK, fromOctets)
 import Crypto.JWT
   ( ClaimsSet,
+    HasClaimsSet (..),
     JWTError,
     SignedJWT,
     claimJti,
     claimSub,
     decodeCompact,
     defaultJWTValidationSettings,
-    unregisteredClaims,
     verifyClaims,
   )
 import Crypto.Random (MonadRandom (..))
-import Data.Aeson (Result (..), ToJSON, Value (String), fromJSON, toJSON)
+import Data.Aeson
+  ( FromJSON (..),
+    Result (..),
+    ToJSON,
+    Value (Object, String),
+    fromJSON,
+    object,
+    toJSON,
+    withObject,
+    (.=),
+    (.:?),
+  )
 import Data.List (find)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
-import qualified Data.Map.Strict as Map
 import Data.Typeable (typeRep)
 import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
 import Network.Wai (Request, requestHeaders)
@@ -69,6 +80,39 @@ data AccessTokenClaims = AccessTokenClaims
   }
   deriving (Show, Eq)
 
+-- | jose claims subtype for access tokens.
+-- Used with signClaims for issuance and as a FromJSON target for verification.
+data JwtAccessClaims = JwtAccessClaims
+  { jacClaimsSet :: !ClaimsSet,
+    jacType :: !(Maybe Text),
+    jacEmail :: !(Maybe Text),
+    jacScopes :: !(Maybe [Text])
+  }
+
+instance HasClaimsSet JwtAccessClaims where
+  claimsSet f jac =
+    fmap (\cs -> jac {jacClaimsSet = cs}) (f (jacClaimsSet jac))
+
+instance FromJSON JwtAccessClaims where
+  parseJSON = withObject "JwtAccessClaims" $ \o ->
+    JwtAccessClaims
+      <$> parseJSON (Object o)
+      <*> o .:? "type"
+      <*> o .:? "email"
+      <*> o .:? "scopes"
+
+instance ToJSON JwtAccessClaims where
+  toJSON jac = mergeObjects
+    (toJSON (jacClaimsSet jac))
+    (object $ catMaybes
+      [ fmap ("type" .=) (jacType jac)
+      , fmap ("email" .=) (jacEmail jac)
+      , fmap ("scopes" .=) (jacScopes jac)
+      ])
+    where
+      mergeObjects (Object a) (Object b) = Object (a <> b)
+      mergeObjects a _ = a
+
 -- | Config injected via Servant context for JWT validation.
 data JWTAuthConfig = JWTAuthConfig
   { jwtAuthValidate :: Text -> IO (Either Text AccessTokenClaims),
@@ -93,28 +137,24 @@ verifyToken key tokenText = do
     Left (err :: JWTError) -> return $ Left (pack $ show err)
     Right claims -> return $ extractClaims claims
 
+-- | Extract AccessTokenClaims from a verified ClaimsSet.
+-- Custom fields (email, scopes) are recovered via a JSON round-trip
+-- into JwtAccessClaims, avoiding the deprecated unregisteredClaims lens.
 extractClaims :: ClaimsSet -> Either Text AccessTokenClaims
 extractClaims claims = do
   sub <- maybe (Left "Missing sub") (Right . suriToText) (claims ^. claimSub)
   jti <- maybe (Left "Missing jti") (Right . suriToText) (claims ^. claimJti)
-  let extra = claims ^. unregisteredClaims
-  email <- lookupText "email" extra
-  let scopes = case Map.lookup "scopes" extra of
-        Just v -> case fromJSON v of
-          Success (s :: [Text]) -> s
-          _ -> []
-        Nothing -> []
+  jac <- case fromJSON (toJSON claims) :: Result JwtAccessClaims of
+    Error err -> Left (pack err)
+    Success j -> Right j
+  email <- maybe (Left "Missing or invalid field: email") Right (jacEmail jac)
+  let scopes = fromMaybe [] (jacScopes jac)
   Right AccessTokenClaims {atcSubject = sub, atcEmail = email, atcJti = jti, atcScopes = scopes}
 
 suriToText :: (ToJSON a) => a -> Text
 suriToText suri = case toJSON suri of
   String t -> t
   other -> pack $ show other
-
-lookupText :: Text -> Map.Map Text Value -> Either Text Text
-lookupText key m = case Map.lookup key m of
-  Just (String t) -> Right t
-  _ -> Left $ "Missing or invalid field: " <> key
 
 extractBearer :: Request -> Maybe Text
 extractBearer req =
