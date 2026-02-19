@@ -17,11 +17,10 @@ import Database.Persist.Postgresql (createPostgresqlPool)
 import Database.Persist.Sql (ConnectionPool, SqlBackend)
 import Database.Persist.SqlBackend.Internal (connLogFunc)
 import Database.Persist.Sqlite (createSqlitePool)
-import Data.Time.Clock (getCurrentTime)
+import Data.Time.Clock (UTCTime, getCurrentTime)
 import RIO
 import RIO.Text (pack, toLower)
 import Service.CorrelationId (HasLogContext (..))
-import Service.Metrics.Optional (OptionalDatabaseMetrics (..))
 import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 import System.Log.FastLogger (fromLogStr)
 
@@ -68,12 +67,17 @@ createConnectionPool settings =
     SQLite -> createSqlitePool settings.dbConnectionString settings.dbPoolSize
     PostgreSQL -> createPostgresqlPool (TE.encodeUtf8 settings.dbConnectionString) settings.dbPoolSize
 
+-- | Type class for environments that carry a database connection pool.
+-- Override 'dbRecordQueryMetrics' to instrument queries with timing metrics;
+-- the default implementation is a no-op.
 class HasDB env where
   dbL :: Lens' env ConnectionPool
+  dbRecordQueryMetrics :: Text -> UTCTime -> UTCTime -> Either SomeException a -> RIO env ()
+  dbRecordQueryMetrics _ _ _ _ = return ()
 
 runSqlPoolWithCid ::
   forall env m a.
-  (HasLogFunc env, HasLogContext env, OptionalDatabaseMetrics env, MonadUnliftIO m, MonadReader env m) =>
+  (HasLogFunc env, HasLogContext env, HasDB env, MonadUnliftIO m, MonadReader env m) =>
   ReaderT SqlBackend (LoggingT m) a ->
   ConnectionPool ->
   m a
@@ -83,7 +87,6 @@ runSqlPoolWithCid action pool = do
         Just cid -> "[cid=" <> cid <> "] "
         Nothing -> ""
 
-  -- Time the query for automatic metrics
   start <- liftIO getCurrentTime
   result <- tryAny $ withRunInIO $ \runInIO ->
     withResource pool $ \backend -> do
@@ -99,9 +102,8 @@ runSqlPoolWithCid action pool = do
 
   end <- liftIO getCurrentTime
 
-  -- Automatically record metrics if available (using ask to get environment)
   environment <- ask
-  liftIO $ runRIO environment $ recordDatabaseQueryMetrics "query" start end result
+  liftIO $ runRIO environment $ dbRecordQueryMetrics "query" start end result
 
   case result of
     Left err -> throwIO err

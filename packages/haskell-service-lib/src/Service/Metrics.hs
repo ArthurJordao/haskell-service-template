@@ -11,9 +11,6 @@ module Service.Metrics
     -- * Database Metrics
     module Service.Metrics.Database,
 
-    -- * Optional Metrics
-    module Service.Metrics.Optional,
-
     -- * Combined Metrics
     Metrics (..),
     HasMetrics (..),
@@ -28,7 +25,6 @@ import Service.Metrics.Core
 import Service.Metrics.Database
 import Service.Metrics.Http
 import Service.Metrics.Kafka (KafkaMetrics (..), HasKafkaMetrics (..), initKafkaMetrics, exportKafkaMetrics, instrumentKafkaHandler, recordKafkaMetricsInternal, recordKafkaOffsetMetricsInternal)
-import Service.Metrics.Optional
 
 -- ============================================================================
 -- Combined Metrics Container
@@ -86,15 +82,3 @@ metricsHandler metrics = do
 
   return $ T.intercalate "\n" $ concat metricLines
 
--- ============================================================================
--- Optional Metrics Instances
--- ============================================================================
-
--- Real instance when metrics are available
--- The default no-op implementations are provided by the type class itself
-instance {-# OVERLAPPING #-} (HasKafkaMetrics env, HasLogFunc env) => OptionalKafkaMetrics env where
-  recordKafkaMessageMetrics = recordKafkaMetricsInternal
-  recordKafkaOffsetMetrics = recordKafkaOffsetMetricsInternal
-
-instance {-# OVERLAPPING #-} (HasDatabaseMetrics env, HasLogFunc env) => OptionalDatabaseMetrics env where
-  recordDatabaseQueryMetrics = recordDatabaseMetricsInternal

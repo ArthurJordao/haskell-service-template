@@ -11,18 +11,31 @@ where
 import Control.Monad.Logger (runStderrLoggingT)
 import qualified Data.Map.Strict as Map
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
-import qualified Ports.Server as Server
-import qualified Ports.Kafka as KafkaPort
 import Kafka.Producer (KafkaProducer)
-import Models.DeadLetter (migrateAll)
+import Models.User (migrateAll)
 import Network.Wai.Handler.Warp (run)
+import qualified Ports.Consumer as KafkaPort
+import qualified Ports.Server as Server
 import RIO
 import Servant
-import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), correlationIdMiddleware, defaultCorrelationId, extractCorrelationId, logInfoC, unCorrelationId)
+import Service.CorrelationId
+  ( CorrelationId (..),
+    HasCorrelationId (..),
+    HasLogContext (..),
+    correlationIdMiddleware,
+    defaultCorrelationId,
+    extractCorrelationId,
+    logInfoC,
+    unCorrelationId,
+  )
 import Service.Database (HasDB (..))
+import Service.Metrics.Database (recordDatabaseMetricsInternal)
 import qualified Service.Database as Database
+import Service.HttpClient (HasHttpClient (..), HttpClient)
+import qualified Service.HttpClient as HttpClient
 import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
+import Service.Metrics (HasMetrics (..), Metrics, initMetrics)
 import Settings (Settings (..), server)
 
 data App = App
@@ -31,7 +44,9 @@ data App = App
     appSettings :: !Settings,
     appCorrelationId :: !CorrelationId,
     db :: !ConnectionPool,
-    kafkaProducer :: !KafkaProducer
+    kafkaProducer :: !KafkaProducer,
+    httpClient :: !HttpClient,
+    appMetrics :: !Metrics
   }
 
 instance HasLogFunc App where
@@ -46,9 +61,11 @@ instance HasCorrelationId App where
 instance Server.HasConfig App Settings where
   settingsL = lens appSettings (\x y -> x {appSettings = y})
   httpSettings = server
+  jwtSettings = jwt
 
 instance HasDB App where
   dbL = lens db (\x y -> x {db = y})
+  dbRecordQueryMetrics = recordDatabaseMetricsInternal
 
 class HasKafkaProducerHandle env where
   kafkaProducerL :: Lens' env KafkaProducer
@@ -62,6 +79,12 @@ instance HasKafkaProducer App where
     cid <- view correlationIdL
     Kafka.produceMessageWithCid producer topic key value cid
 
+instance HasHttpClient App where
+  httpClientL = lens httpClient (\x y -> x {httpClient = y})
+
+instance HasMetrics App where
+  metricsL = lens appMetrics (\x y -> x {appMetrics = y})
+
 initializeApp :: Settings -> LogFunc -> IO App
 initializeApp settings logFunc = runRIO logFunc $ do
   let dbSettings = database settings
@@ -74,6 +97,8 @@ initializeApp settings logFunc = runRIO logFunc $ do
     liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
 
   producer <- Kafka.startProducer (KafkaPort.kafkaBroker kafkaSettings)
+  client <- HttpClient.initHttpClient
+  metrics <- liftIO initMetrics
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
@@ -85,7 +110,9 @@ initializeApp settings logFunc = runRIO logFunc $ do
         appSettings = settings,
         appCorrelationId = initCid,
         db = pool,
-        kafkaProducer = producer
+        kafkaProducer = producer,
+        httpClient = client,
+        appMetrics = metrics
       }
 
 runApp :: App -> IO ()
@@ -103,12 +130,12 @@ runApp env = do
     serverThread :: Server.Settings -> RIO App ()
     serverThread serverSettings = do
       appEnv <- ask
-      logInfoC $ "Starting DLQ HTTP server on port " <> displayShow (Server.httpPort serverSettings)
+      logInfoC $ "Starting HTTP server on port " <> displayShow (Server.httpPort serverSettings)
       liftIO $ run (Server.httpPort serverSettings) (app appEnv)
 
     kafkaThread :: Kafka.KafkaConsumer -> Kafka.ConsumerConfig App -> RIO App ()
     kafkaThread consumer consumerCfg = do
-      logInfoC "Starting DLQ Kafka consumer"
+      logInfoC "Starting Kafka consumer"
       Kafka.consumerLoop consumer consumerCfg
 
 type AppContext = '[App]

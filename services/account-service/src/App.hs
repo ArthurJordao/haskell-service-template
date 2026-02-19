@@ -20,13 +20,14 @@ import RIO
 import Servant
 import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), correlationIdMiddleware, defaultCorrelationId, extractCorrelationId, logInfoC, unCorrelationId)
 import Service.Database (HasDB (..))
+import Service.Metrics.Database (recordDatabaseMetricsInternal)
 import qualified Service.Database as Database
 import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
 import Service.HttpClient (HttpClient, HasHttpClient (..))
 import qualified Service.HttpClient as HttpClient
-import Service.Metrics (Metrics, HasMetrics (..), initMetrics, metricsHandler)
-import Service.Metrics.Optional (OptionalDatabaseMetrics, OptionalKafkaMetrics)
+import Service.Auth (JWTAuthConfig, makeJWTAuthConfig)
+import Service.Metrics (Metrics, HasMetrics (..), initMetrics)
 import Settings (Settings (..), server)
 
 data App = App
@@ -37,7 +38,8 @@ data App = App
     db :: !ConnectionPool,
     kafkaProducer :: !KafkaProducer,
     httpClient :: !HttpClient,
-    appMetrics :: !Metrics
+    appMetrics :: !Metrics,
+    appJwtConfig :: !JWTAuthConfig
   }
 
 instance HasLogFunc App where
@@ -55,6 +57,7 @@ instance Server.HasConfig App Settings where
 
 instance HasDB App where
   dbL = lens db (\x y -> x {db = y})
+  dbRecordQueryMetrics = recordDatabaseMetricsInternal
 
 class HasKafkaProducerHandle env where
   kafkaProducerL :: Lens' env KafkaProducer
@@ -94,6 +97,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
+      jwtCfg = makeJWTAuthConfig (encodeUtf8 (jwtSecret settings)) "user-"
 
   return
     App
@@ -104,7 +108,8 @@ initializeApp settings logFunc = runRIO logFunc $ do
         db = pool,
         kafkaProducer = producer,
         httpClient = client,
-        appMetrics = metrics
+        appMetrics = metrics,
+        appJwtConfig = jwtCfg
       }
 
 runApp :: App -> IO ()
@@ -130,7 +135,7 @@ runApp env = do
       logInfoC "Starting Kafka consumer"
       Kafka.consumerLoop consumer consumerCfg
 
-type AppContext = '[App]
+type AppContext = '[JWTAuthConfig, App]
 
 app :: App -> Application
 app baseEnv = correlationIdMiddleware $ \req ->
@@ -149,4 +154,4 @@ app baseEnv = correlationIdMiddleware $ \req ->
     api = Proxy
 
     appContext :: App -> Context AppContext
-    appContext e = e :. EmptyContext
+    appContext e = appJwtConfig e :. e :. EmptyContext

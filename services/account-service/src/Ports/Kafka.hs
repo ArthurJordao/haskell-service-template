@@ -5,13 +5,24 @@ module Ports.Kafka
   )
 where
 
-import Data.Aeson (Value)
+import Data.Aeson (Result (..), Value, fromJSON)
+import Database.Persist.Sql (get, insertKey, toSqlKey)
 import Kafka.Consumer (TopicName (..))
+import Models.Account (Account (..), AccountId)
 import RIO
-import Service.CorrelationId (HasLogContext (..), logInfoC)
+import Service.CorrelationId (HasLogContext (..), logInfoC, logWarnC)
+import Service.Database (HasDB (..), runSqlPoolWithCid)
+import Service.Events (UserRegisteredEvent (..))
 import Service.Kafka
-
-consumerConfig :: (HasLogFunc env, HasLogContext env) => Settings -> ConsumerConfig env
+import Service.Metrics.Kafka (HasKafkaMetrics, recordKafkaMetricsInternal, recordKafkaOffsetMetricsInternal)
+consumerConfig ::
+  ( HasLogFunc env,
+    HasLogContext env,
+    HasDB env,
+    HasKafkaMetrics env
+  ) =>
+  Settings ->
+  ConsumerConfig env
 consumerConfig kafkaSettings =
   ConsumerConfig
     { brokerAddress = kafkaBroker kafkaSettings,
@@ -24,10 +35,16 @@ consumerConfig kafkaSettings =
           TopicHandler
             { topic = TopicName "account-created",
               handler = accountCreatedHandler
+            },
+          TopicHandler
+            { topic = TopicName "user-registered",
+              handler = userRegisteredHandler
             }
         ],
       deadLetterTopic = TopicName (kafkaDeadLetterTopic kafkaSettings),
-      maxRetries = kafkaMaxRetries kafkaSettings
+      maxRetries = kafkaMaxRetries kafkaSettings,
+      consumerRecordMessageMetrics = recordKafkaMetricsInternal,
+      consumerRecordOffsetMetrics = recordKafkaOffsetMetricsInternal
     }
 
 testTopicHandler :: (HasLogFunc env, HasLogContext env) => Value -> RIO env ()
@@ -37,3 +54,23 @@ testTopicHandler jsonValue = do
 accountCreatedHandler :: (HasLogFunc env, HasLogContext env) => Value -> RIO env ()
 accountCreatedHandler jsonValue = do
   logInfoC $ "Account created event received: " <> displayShow jsonValue
+
+userRegisteredHandler ::
+  ( HasLogFunc env,
+    HasLogContext env,
+    HasDB env
+  ) =>
+  Value ->
+  RIO env ()
+userRegisteredHandler jsonValue =
+  case fromJSON @UserRegisteredEvent jsonValue of
+    Error e -> logWarnC $ "Invalid user-registered payload: " <> displayShow e
+    Success (UserRegisteredEvent uid email) -> do
+      pool <- view dbL
+      let key = toSqlKey uid :: AccountId
+      existing <- runSqlPoolWithCid (get key) pool
+      case existing of
+        Just _ -> logInfoC $ "Account already exists for user " <> displayShow uid
+        Nothing -> do
+          runSqlPoolWithCid (insertKey key Account {accountName = email, accountEmail = email}) pool
+          logInfoC $ "Created account for user " <> displayShow uid

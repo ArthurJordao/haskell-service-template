@@ -16,7 +16,6 @@ import qualified Data.Text as T
 import GHC.Conc (unsafeIOToSTM)
 import RIO
 import Service.Metrics.Core
-import Service.Metrics.Optional
 
 -- ============================================================================
 -- Kafka Metrics Data Structure

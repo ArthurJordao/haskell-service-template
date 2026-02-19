@@ -37,7 +37,8 @@ library
       Service.Metrics.Http
       Service.Metrics.Kafka
       Service.Metrics.Database
-      Service.Metrics.Optional
+      Service.Auth
+      Service.Events
   other-modules:
       Paths_haskell_service_lib
   autogen-modules:
@@ -66,22 +67,30 @@ library
     , base >=4.7 && <5
     , bytestring
     , containers
+    , crypton
     , envy
     , fast-logger
     , http-client
     , http-client-tls
     , http-types
     , hw-kafka-client
+    , jose
+    , lens
+    , microlens
     , monad-logger
+    , mtl
     , persistent
     , persistent-postgresql
     , persistent-sqlite
     , random
     , resource-pool
     , rio
+    , servant
+    , servant-server
     , stm
     , text
     , time
+    , uuid
     , vault
     , wai
   default-language: Haskell2010
@@ -118,6 +127,7 @@ test-suite haskell-service-lib-test
     , base >=4.7 && <5
     , bytestring
     , containers
+    , crypton
     , envy
     , fast-logger
     , haskell-service-lib
@@ -126,16 +136,23 @@ test-suite haskell-service-lib-test
     , http-client-tls
     , http-types
     , hw-kafka-client
+    , jose
+    , lens
+    , microlens
     , monad-logger
+    , mtl
     , persistent
     , persistent-postgresql
     , persistent-sqlite
     , random
     , resource-pool
     , rio
+    , servant
+    , servant-server
     , stm
     , text
     , time
+    , uuid
     , vault
     , wai
   default-language: Haskell2010

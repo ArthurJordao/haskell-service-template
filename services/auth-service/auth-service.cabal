@@ -4,15 +4,16 @@ cabal-version: 2.2
 --
 -- see: https://github.com/sol/hpack
 
-name:           account-service
+name:           auth-service
 version:        0.1.0.0
-description:    Account service for managing user accounts
-homepage:       https://github.com/githubuser/account-service#readme
-bug-reports:    https://github.com/githubuser/account-service/issues
+description:    Authentication service for managing user credentials and JWT tokens
+homepage:       https://github.com/githubuser/auth-service#readme
+bug-reports:    https://github.com/githubuser/auth-service/issues
 author:         Author name here
 maintainer:     example@example.com
-copyright:      2024 Author name here
+copyright:      2026 Author name here
 license:        BSD-3-Clause
+license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
     README.md
@@ -20,21 +21,25 @@ extra-source-files:
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/account-service
+  location: https://github.com/githubuser/auth-service
 
 library
   exposed-modules:
       App
+      Auth.JWT
+      Auth.Password
       Lib
-      Models.Account
-      Ports.HttpClient
+      Models.User
+      Ports.Consumer
       Ports.Kafka
+      Ports.Produce
+      Ports.Repository
       Ports.Server
       Settings
   other-modules:
-      Paths_account_service
+      Paths_auth_service
   autogen-modules:
-      Paths_account_service
+      Paths_auth_service
   hs-source-dirs:
       src
   default-extensions:
@@ -59,43 +64,48 @@ library
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
   build-depends:
       aeson
-    , aeson-pretty
-    , attoparsec
-    , attoparsec-binary
     , base >=4.7 && <5
-    , conduit
-    , conduit-extra
+    , bcrypt
+    , bytestring
     , containers
+    , crypton
     , envy
     , esqueleto
     , fast-logger
     , haskell-service-lib
-    , hspec
     , http-client
     , http-types
     , hw-kafka-client
+    , jose
+    , lens
+    , memory
+    , microlens
     , monad-logger
+    , mtl
     , persistent
+    , persistent-postgresql
     , persistent-sqlite
     , random
     , resource-pool
     , rio
     , servant
-    , servant-client
     , servant-server
     , text
+    , time
     , unliftio
+    , unordered-containers
+    , uuid
     , vault
     , wai
     , warp
   default-language: Haskell2010
 
-executable account-service-exe
+executable auth-service-exe
   main-is: Main.hs
   other-modules:
-      Paths_account_service
+      Paths_auth_service
   autogen-modules:
-      Paths_account_service
+      Paths_auth_service
   hs-source-dirs:
       app
   default-extensions:
@@ -119,45 +129,50 @@ executable account-service-exe
       DeriveAnyClass
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      account-service
-    , aeson
-    , aeson-pretty
-    , attoparsec
-    , attoparsec-binary
+      aeson
+    , auth-service
     , base >=4.7 && <5
-    , conduit
-    , conduit-extra
+    , bcrypt
+    , bytestring
     , containers
+    , crypton
     , envy
     , esqueleto
     , fast-logger
     , haskell-service-lib
-    , hspec
     , http-client
     , http-types
     , hw-kafka-client
+    , jose
+    , lens
+    , memory
+    , microlens
     , monad-logger
+    , mtl
     , persistent
+    , persistent-postgresql
     , persistent-sqlite
     , random
     , resource-pool
     , rio
     , servant
-    , servant-client
     , servant-server
     , text
+    , time
     , unliftio
+    , unordered-containers
+    , uuid
     , vault
     , wai
     , warp
   default-language: Haskell2010
 
-executable account-service-migrations
+executable auth-service-migrations
   main-is: Main.hs
   other-modules:
-      Paths_account_service
+      Paths_auth_service
   autogen-modules:
-      Paths_account_service
+      Paths_auth_service
   hs-source-dirs:
       migrations-app
   default-extensions:
@@ -181,46 +196,51 @@ executable account-service-migrations
       DeriveAnyClass
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      account-service
-    , aeson
-    , aeson-pretty
-    , attoparsec
-    , attoparsec-binary
+      aeson
+    , auth-service
     , base >=4.7 && <5
-    , conduit
-    , conduit-extra
+    , bcrypt
+    , bytestring
     , containers
+    , crypton
     , envy
     , esqueleto
     , fast-logger
     , haskell-service-lib
-    , hspec
     , http-client
     , http-types
     , hw-kafka-client
+    , jose
+    , lens
+    , memory
+    , microlens
     , monad-logger
+    , mtl
     , persistent
+    , persistent-postgresql
     , persistent-sqlite
     , random
     , resource-pool
     , rio
     , servant
-    , servant-client
     , servant-server
     , text
+    , time
     , unliftio
+    , unordered-containers
+    , uuid
     , vault
     , wai
     , warp
   default-language: Haskell2010
 
-test-suite account-service-test
+test-suite auth-service-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      Paths_account_service
+      Paths_auth_service
   autogen-modules:
-      Paths_account_service
+      Paths_auth_service
   hs-source-dirs:
       test
   default-extensions:
@@ -244,16 +264,13 @@ test-suite account-service-test
       DeriveAnyClass
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      account-service
-    , aeson
-    , aeson-pretty
-    , attoparsec
-    , attoparsec-binary
+      aeson
+    , auth-service
     , base >=4.7 && <5
+    , bcrypt
     , bytestring
-    , conduit
-    , conduit-extra
     , containers
+    , crypton
     , envy
     , esqueleto
     , fast-logger
@@ -262,17 +279,25 @@ test-suite account-service-test
     , http-client
     , http-types
     , hw-kafka-client
+    , jose
+    , lens
+    , memory
+    , microlens
     , monad-logger
+    , mtl
     , persistent
+    , persistent-postgresql
     , persistent-sqlite
     , random
     , resource-pool
     , rio
     , servant
-    , servant-client
     , servant-server
     , text
+    , time
     , unliftio
+    , unordered-containers
+    , uuid
     , vault
     , wai
     , warp
