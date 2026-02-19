@@ -43,6 +43,7 @@ dependencies:
 - time
 - transformers
 - haskell-service-lib
+- jose
 
 ghc-options:
 - -Wall

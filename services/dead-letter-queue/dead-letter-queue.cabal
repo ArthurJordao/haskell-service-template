@@ -72,6 +72,7 @@ library
     , http-client
     , http-types
     , hw-kafka-client
+    , jose
     , monad-logger
     , persistent
     , persistent-sqlite
@@ -136,6 +137,7 @@ executable dead-letter-queue-exe
     , http-client
     , http-types
     , hw-kafka-client
+    , jose
     , monad-logger
     , persistent
     , persistent-sqlite
@@ -200,6 +202,7 @@ executable dead-letter-queue-migrations
     , http-client
     , http-types
     , hw-kafka-client
+    , jose
     , monad-logger
     , persistent
     , persistent-sqlite
@@ -265,6 +268,7 @@ test-suite dead-letter-queue-test
     , http-client
     , http-types
     , hw-kafka-client
+    , jose
     , monad-logger
     , persistent
     , persistent-sqlite

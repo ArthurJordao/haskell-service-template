@@ -28,6 +28,8 @@ import Service.CorrelationId
     logInfoC,
     unCorrelationId,
   )
+import Service.Cors (corsMiddleware)
+import RIO.Text (unpack)
 import Service.Database (HasDB (..))
 import Service.Metrics.Database (recordDatabaseMetricsInternal)
 import qualified Service.Database as Database
@@ -134,17 +136,19 @@ runApp env = do
 type AppContext = '[App]
 
 app :: App -> Application
-app baseEnv = correlationIdMiddleware $ \req ->
-  let maybeCid = extractCorrelationId req
-      cid = fromMaybe (error "CID middleware should always set CID") maybeCid
-      cidText = unCorrelationId cid
-      env =
-        baseEnv
-          & correlationIdL
-          .~ cid
-            & logContextL
-          .~ Map.singleton "cid" cidText
-   in serveWithContext api (appContext env) (hoistServerWithContext api (Proxy :: Proxy AppContext) (runRIO env) Server.server) req
+app baseEnv =
+  let origins = map unpack (corsOrigins (appSettings baseEnv))
+   in corsMiddleware origins $ correlationIdMiddleware $ \req ->
+        let maybeCid = extractCorrelationId req
+            cid = fromMaybe (error "CID middleware should always set CID") maybeCid
+            cidText = unCorrelationId cid
+            env =
+              baseEnv
+                & correlationIdL
+                .~ cid
+                  & logContextL
+                .~ Map.singleton "cid" cidText
+         in serveWithContext api (appContext env) (hoistServerWithContext api (Proxy :: Proxy AppContext) (runRIO env) Server.server) req
   where
     api :: Proxy Server.API
     api = Proxy

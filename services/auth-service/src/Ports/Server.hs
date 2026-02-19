@@ -29,34 +29,34 @@ import Service.Server
 -- ============================================================================
 
 data RegisterRequest = RegisterRequest
-  { registerEmail :: !Text,
-    registerPassword :: !Text
+  { email :: !Text,
+    password :: !Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
 data LoginRequest = LoginRequest
-  { loginEmail :: !Text,
-    loginPassword :: !Text
+  { email :: !Text,
+    password :: !Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
 data RefreshRequest = RefreshRequest
-  { refreshRequestToken :: !Text
+  { refreshToken :: !Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
 data LogoutRequest = LogoutRequest
-  { logoutRefreshToken :: !Text
+  { refreshToken :: !Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
 data AuthTokens = AuthTokens
   { accessToken :: !Text,
-    authRefreshToken :: !Text,
+    refreshToken :: !Text,
     tokenType :: !Text,
     expiresIn :: !Int
   }
@@ -166,8 +166,8 @@ registerHandler ::
 registerHandler req = do
   settings <- view (settingsL @env @settings)
   let jwt = jwtSettings @env @settings settings
-  (at, rt, expiresIn_) <- Domain.register jwt (registerEmail req) (registerPassword req)
-  return AuthTokens {accessToken = at, authRefreshToken = rt, tokenType = "Bearer", expiresIn = expiresIn_}
+  (at, rt, expiresIn_) <- Domain.register jwt req.email req.password
+  return AuthTokens {accessToken = at, refreshToken = rt, tokenType = "Bearer", expiresIn = expiresIn_}
 
 loginHandler ::
   forall env settings.
@@ -181,8 +181,8 @@ loginHandler ::
 loginHandler req = do
   settings <- view (settingsL @env @settings)
   let jwt = jwtSettings @env @settings settings
-  (at, rt, expiresIn_) <- Domain.login jwt (loginEmail req) (loginPassword req)
-  return AuthTokens {accessToken = at, authRefreshToken = rt, tokenType = "Bearer", expiresIn = expiresIn_}
+  (at, rt, expiresIn_) <- Domain.login jwt req.email req.password
+  return AuthTokens {accessToken = at, refreshToken = rt, tokenType = "Bearer", expiresIn = expiresIn_}
 
 refreshHandler ::
   forall env settings.
@@ -196,11 +196,11 @@ refreshHandler ::
 refreshHandler req = do
   settings <- view (settingsL @env @settings)
   let jwt = jwtSettings @env @settings settings
-  (at, expiresIn_) <- Domain.refreshAccessToken jwt (refreshRequestToken req)
+  (at, expiresIn_) <- Domain.refreshAccessToken jwt req.refreshToken
   return
     AuthTokens
       { accessToken = at,
-        authRefreshToken = refreshRequestToken req,
+        refreshToken = req.refreshToken,
         tokenType = "Bearer",
         expiresIn = expiresIn_
       }
@@ -217,7 +217,7 @@ logoutHandler ::
 logoutHandler req = do
   settings <- view (settingsL @env @settings)
   let jwt = jwtSettings @env @settings settings
-  Domain.logout jwt (logoutRefreshToken req)
+  Domain.logout jwt req.refreshToken
   return NoContent
 
 metricsEndpointHandler :: (HasMetrics env) => RIO env Text

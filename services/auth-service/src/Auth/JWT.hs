@@ -57,7 +57,9 @@ data JWTSettings = JWTSettings
     -- | Access token lifetime in seconds (e.g. 900 = 15 min).
     jwtAccessTokenExpirySeconds :: !Int,
     -- | Refresh token lifetime in days (e.g. 7 = 7 days).
-    jwtRefreshTokenExpiryDays :: !Int
+    jwtRefreshTokenExpiryDays :: !Int,
+    -- | Emails that receive admin-scoped access tokens.
+    jwtAdminEmails :: ![Text]
   }
 
 accessExpiry :: JWTSettings -> NominalDiffTime

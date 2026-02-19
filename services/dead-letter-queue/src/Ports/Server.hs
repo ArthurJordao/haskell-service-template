@@ -19,6 +19,7 @@ import Models.DeadLetter (DeadLetter (..))
 import RIO
 import Servant
 import Servant.Server.Generic (AsServerT)
+import Service.Auth (AccessTokenClaims, HasScopes)
 import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
 import Service.Kafka (HasKafkaProducer (..))
@@ -60,6 +61,7 @@ data Routes route = Routes
       route
         :- Summary "List dead letter messages with optional filters"
           :> "dlq"
+          :> HasScopes '["admin"]
           :> QueryParam "status" Text
           :> QueryParam "topic" Text
           :> QueryParam "error_type" Text
@@ -68,12 +70,14 @@ data Routes route = Routes
       route
         :- Summary "Get a single dead letter message by ID"
           :> "dlq"
+          :> HasScopes '["admin"]
           :> Capture "id" Int64
           :> Get '[JSON] DeadLetterResponse,
     replayMessage ::
       route
         :- Summary "Replay a single dead letter message to its original topic"
           :> "dlq"
+          :> HasScopes '["admin"]
           :> Capture "id" Int64
           :> "replay"
           :> Post '[JSON] ReplayResult,
@@ -81,6 +85,7 @@ data Routes route = Routes
       route
         :- Summary "Replay multiple dead letter messages"
           :> "dlq"
+          :> HasScopes '["admin"]
           :> "replay-batch"
           :> ReqBody '[JSON] [Int64]
           :> Post '[JSON] [ReplayResult],
@@ -88,6 +93,7 @@ data Routes route = Routes
       route
         :- Summary "Discard a dead letter message (mark as handled)"
           :> "dlq"
+          :> HasScopes '["admin"]
           :> Capture "id" Int64
           :> "discard"
           :> Post '[JSON] NoContent,
@@ -95,6 +101,7 @@ data Routes route = Routes
       route
         :- Summary "Get DLQ statistics"
           :> "dlq"
+          :> HasScopes '["admin"]
           :> "stats"
           :> Get '[JSON] DLQStats
   }
@@ -126,12 +133,12 @@ server ::
 server =
   Routes
     { status = statusHandler,
-      listDeadLetters = listDeadLettersHandler,
-      getDeadLetter = getDeadLetterHandler,
-      replayMessage = Domain.replayMessage,
-      replayBatch = Domain.replayBatch,
-      discardMessage = discardMessageHandler,
-      getStats = Domain.getStats
+      listDeadLetters = \_claims -> listDeadLettersHandler,
+      getDeadLetter = \_claims -> getDeadLetterHandler,
+      replayMessage = \_claims -> Domain.replayMessage,
+      replayBatch = \_claims -> Domain.replayBatch,
+      discardMessage = \_claims -> discardMessageHandler,
+      getStats = \_claims -> Domain.getStats
     }
 
 statusHandler ::

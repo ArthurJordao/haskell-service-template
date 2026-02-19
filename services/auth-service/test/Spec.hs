@@ -104,7 +104,8 @@ withTestApp action = do
         JWTSettings
           { jwtPrivateKey = testKey,
             jwtAccessTokenExpirySeconds = 900,
-            jwtRefreshTokenExpiryDays = 7
+            jwtRefreshTokenExpiryDays = 7,
+            jwtAdminEmails = []
           }
   let dbSettings =
         Database.Settings
@@ -124,7 +125,8 @@ withTestApp action = do
                   KafkaPort.kafkaMaxRetries = 3
                 },
             database = dbSettings,
-            jwt = testJwtSettings
+            jwt = testJwtSettings,
+            corsOrigins = []
           }
   logOptions <- logOptionsHandle stderr False
   withLogFunc logOptions $ \logFunc -> do
@@ -205,7 +207,7 @@ spec = around withTestApp $ do
         Nothing -> expectationFailure "Failed to decode AuthTokens"
         Just tokens -> do
           accessToken tokens `shouldNotBe` ""
-          authRefreshToken tokens `shouldNotBe` ""
+          tokens.refreshToken `shouldNotBe` ""
           tokenType tokens `shouldBe` "Bearer"
           expiresIn tokens `shouldBe` 900
 
@@ -239,7 +241,7 @@ spec = around withTestApp $ do
       mgr <- newManager defaultManagerSettings
       regResp <- registerUser mgr port "eve@example.com" "pass"
       let Just tokens = decode @AuthTokens (responseBody regResp)
-      resp <- postJSON mgr (baseUrl port <> "/auth/refresh") (encode (RefreshRequest (authRefreshToken tokens)))
+      resp <- postJSON mgr (baseUrl port <> "/auth/refresh") (encode (RefreshRequest (tokens.refreshToken)))
       responseStatus resp `shouldBe` status200
       decode @AuthTokens (responseBody resp) `shouldSatisfy` isJust
 
@@ -253,7 +255,7 @@ spec = around withTestApp $ do
       mgr <- newManager defaultManagerSettings
       regResp <- registerUser mgr port "frank@example.com" "pass"
       let Just tokens = decode @AuthTokens (responseBody regResp)
-          rt = authRefreshToken tokens
+          rt = tokens.refreshToken
       logoutResp <- postJSON mgr (baseUrl port <> "/auth/logout") (encode (LogoutRequest rt))
       responseStatus logoutResp `shouldBe` status200
       -- The revoked token must no longer be accepted

@@ -86,6 +86,7 @@ default-extensions:
   - UndecidableInstances
   - DerivingStrategies
   - DeriveAnyClass
+  - DuplicateRecordFields
 
 library:
   source-dirs: src

@@ -12,6 +12,7 @@ where
 import Auth.JWT
   ( JWTSettings (..),
     issueAccessToken,
+    issueAdminAccessToken,
     issueRefreshToken,
     verifyRefreshTokenJti,
   )
@@ -142,8 +143,9 @@ issueTokenPair ::
 issueTokenPair jwt userId email = do
   let userIdInt = fromSqlKey userId :: Int64
   now <- liftIO getCurrentTime
+  let issueAt = if email `elem` jwtAdminEmails jwt then issueAdminAccessToken else issueAccessToken
 
-  at <- liftIO (issueAccessToken jwt userIdInt email now) >>= \case
+  at <- liftIO (issueAt jwt userIdInt email now) >>= \case
     Left err -> throwM err500 {errBody = fromString (unpack err)}
     Right t -> return t
 

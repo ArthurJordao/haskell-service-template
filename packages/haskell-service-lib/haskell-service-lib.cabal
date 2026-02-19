@@ -38,6 +38,7 @@ library
       Service.Metrics.Kafka
       Service.Metrics.Database
       Service.Auth
+      Service.Cors
       Service.Events
   other-modules:
       Paths_haskell_service_lib
@@ -93,6 +94,7 @@ library
     , uuid
     , vault
     , wai
+    , wai-cors
   default-language: Haskell2010
 
 test-suite haskell-service-lib-test
@@ -155,4 +157,5 @@ test-suite haskell-service-lib-test
     , uuid
     , vault
     , wai
+    , wai-cors
   default-language: Haskell2010

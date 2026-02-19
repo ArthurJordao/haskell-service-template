@@ -17,8 +17,11 @@ import Kafka.Producer (KafkaProducer)
 import Models.DeadLetter (migrateAll)
 import Network.Wai.Handler.Warp (run)
 import RIO
+import RIO.Text (unpack)
 import Servant
+import Service.Auth (JWTAuthConfig, makeJWTAuthConfig)
 import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), correlationIdMiddleware, defaultCorrelationId, extractCorrelationId, logInfoC, unCorrelationId)
+import Service.Cors (corsMiddleware)
 import Service.Database (HasDB (..))
 import qualified Service.Database as Database
 import Service.Kafka (HasKafkaProducer (..))
@@ -31,7 +34,8 @@ data App = App
     appSettings :: !Settings,
     appCorrelationId :: !CorrelationId,
     db :: !ConnectionPool,
-    kafkaProducer :: !KafkaProducer
+    kafkaProducer :: !KafkaProducer,
+    appJwtConfig :: !JWTAuthConfig
   }
 
 instance HasLogFunc App where
@@ -77,6 +81,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
+      jwtCfg = makeJWTAuthConfig (jwtPublicKey settings) "user-"
 
   return
     App
@@ -85,7 +90,8 @@ initializeApp settings logFunc = runRIO logFunc $ do
         appSettings = settings,
         appCorrelationId = initCid,
         db = pool,
-        kafkaProducer = producer
+        kafkaProducer = producer,
+        appJwtConfig = jwtCfg
       }
 
 runApp :: App -> IO ()
@@ -104,23 +110,25 @@ runApp env = do
       logInfoC $ "Starting DLQ HTTP server on port " <> displayShow (Server.httpPort serverSettings)
       liftIO $ run (Server.httpPort serverSettings) (app appEnv)
 
-type AppContext = '[App]
+type AppContext = '[JWTAuthConfig, App]
 
 app :: App -> Application
-app baseEnv = correlationIdMiddleware $ \req ->
-  let maybeCid = extractCorrelationId req
-      cid = fromMaybe (error "CID middleware should always set CID") maybeCid
-      cidText = unCorrelationId cid
-      env =
-        baseEnv
-          & correlationIdL
-          .~ cid
-            & logContextL
-          .~ Map.singleton "cid" cidText
-   in serveWithContext api (appContext env) (hoistServerWithContext api (Proxy :: Proxy AppContext) (runRIO env) Server.server) req
+app baseEnv =
+  let origins = map unpack (corsOrigins (appSettings baseEnv))
+   in corsMiddleware origins $ correlationIdMiddleware $ \req ->
+        let maybeCid = extractCorrelationId req
+            cid = fromMaybe (error "CID middleware should always set CID") maybeCid
+            cidText = unCorrelationId cid
+            env =
+              baseEnv
+                & correlationIdL
+                .~ cid
+                  & logContextL
+                .~ Map.singleton "cid" cidText
+         in serveWithContext api (appContext env) (hoistServerWithContext api (Proxy :: Proxy AppContext) (runRIO env) Server.server) req
   where
     api :: Proxy Server.API
     api = Proxy
 
     appContext :: App -> Context AppContext
-    appContext e = e :. EmptyContext
+    appContext e = appJwtConfig e :. e :. EmptyContext
