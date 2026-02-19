@@ -1,6 +1,5 @@
 .stack-work/
 *~
-accounts.db*
+*.db*
 services/*/notifications/
 services/*/.env
-*.db
