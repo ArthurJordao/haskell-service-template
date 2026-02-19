@@ -3,7 +3,6 @@
 module Auth.JWT
   ( JWTSettings (..),
     AccessTokenClaims (..),
-    makeJWTKey,
     issueAccessToken,
     issueAdminAccessToken,
     issueServiceToken,
@@ -17,7 +16,7 @@ import Service.Auth (AccessTokenClaims (..), JwtAccessClaims (..))
 
 import Control.Monad.Except (runExceptT)
 import Crypto.JOSE (encodeCompact)
-import Crypto.JOSE.JWK (JWK, fromOctets)
+import Crypto.JOSE.JWK (JWK)
 import Crypto.JWT
   ( ClaimsSet,
     JWTError,
@@ -34,7 +33,7 @@ import Crypto.JWT
     signClaims,
     verifyClaims,
   )
-import Crypto.JOSE.JWA.JWS (Alg (HS256))
+import Crypto.JOSE.JWA.JWS (Alg (ES256))
 import Data.Aeson
   ( Result (..),
     ToJSON,
@@ -54,7 +53,7 @@ import RIO.Text (pack, unpack)
 
 -- | Configuration for JWT issuance and validation.
 data JWTSettings = JWTSettings
-  { jwtKey :: !JWK,
+  { jwtPrivateKey :: !JWK,
     -- | Access token lifetime in seconds (e.g. 900 = 15 min).
     jwtAccessTokenExpirySeconds :: !Int,
     -- | Refresh token lifetime in days (e.g. 7 = 7 days).
@@ -66,10 +65,6 @@ accessExpiry = fromIntegral . jwtAccessTokenExpirySeconds
 
 refreshExpiry :: JWTSettings -> NominalDiffTime
 refreshExpiry s = nominalDay * fromIntegral (jwtRefreshTokenExpiryDays s)
-
--- | Create a symmetric JWK from a raw secret.
-makeJWTKey :: ByteString -> JWK
-makeJWTKey = fromOctets
 
 generateJti :: IO Text
 generateJti = UUID.toText <$> nextRandom
@@ -108,7 +103,7 @@ issueAccessToken settings userId email issuedAt = do
   case withExtraClaims baseClaims extras of
     Left err -> return $ Left err
     Right claims -> do
-      result <- runExceptT $ signClaims (jwtKey settings) (newJWSHeader ((), HS256)) claims
+      result <- runExceptT $ signClaims (jwtPrivateKey settings) (newJWSHeader ((), ES256)) claims
       case result of
         Left (err :: JWTError) -> return $ Left (pack $ show err)
         Right jwt -> return $ Right $ decodeUtf8Lenient $ BL.toStrict $ encodeCompact jwt
@@ -137,7 +132,7 @@ issueAdminAccessToken settings userId email issuedAt = do
   case withExtraClaims baseClaims extras of
     Left err -> return $ Left err
     Right claims -> do
-      result <- runExceptT $ signClaims (jwtKey settings) (newJWSHeader ((), HS256)) claims
+      result <- runExceptT $ signClaims (jwtPrivateKey settings) (newJWSHeader ((), ES256)) claims
       case result of
         Left (err :: JWTError) -> return $ Left (pack $ show err)
         Right jwt -> return $ Right $ decodeUtf8Lenient $ BL.toStrict $ encodeCompact jwt
@@ -163,7 +158,7 @@ issueServiceToken settings serviceName scopes issuedAt = do
   case withExtraClaims baseClaims extras of
     Left err -> return $ Left err
     Right claims -> do
-      result <- runExceptT $ signClaims (jwtKey settings) (newJWSHeader ((), HS256)) claims
+      result <- runExceptT $ signClaims (jwtPrivateKey settings) (newJWSHeader ((), ES256)) claims
       case result of
         Left (err :: JWTError) -> return $ Left (pack $ show err)
         Right jwt -> return $ Right $ decodeUtf8Lenient $ BL.toStrict $ encodeCompact jwt
@@ -184,7 +179,7 @@ issueRefreshToken settings userId issuedAt = do
   case withExtraClaims baseClaims extras of
     Left err -> return $ Left err
     Right claims -> do
-      result <- runExceptT $ signClaims (jwtKey settings) (newJWSHeader ((), HS256)) claims
+      result <- runExceptT $ signClaims (jwtPrivateKey settings) (newJWSHeader ((), ES256)) claims
       case result of
         Left (err :: JWTError) -> return $ Left (pack $ show err)
         Right jwt ->
@@ -197,7 +192,7 @@ verifyAccessToken settings tokenText = do
   let tokenBs = BL.fromStrict $ encodeUtf8 tokenText
   result <- runExceptT $ do
     (signedJwt :: SignedJWT) <- decodeCompact tokenBs
-    verifyClaims (defaultJWTValidationSettings (const True)) (jwtKey settings) signedJwt
+    verifyClaims (defaultJWTValidationSettings (const True)) (jwtPrivateKey settings) signedJwt
   case result of
     Left (err :: JWTError) -> return $ Left (pack $ show err)
     Right claims -> return $ extractAccessClaims claims
@@ -208,7 +203,7 @@ verifyRefreshTokenJti settings tokenText = do
   let tokenBs = BL.fromStrict $ encodeUtf8 tokenText
   result <- runExceptT $ do
     (signedJwt :: SignedJWT) <- decodeCompact tokenBs
-    verifyClaims (defaultJWTValidationSettings (const True)) (jwtKey settings) signedJwt
+    verifyClaims (defaultJWTValidationSettings (const True)) (jwtPrivateKey settings) signedJwt
   case result of
     Left (err :: JWTError) -> return $ Left (pack $ show err)
     Right claims ->

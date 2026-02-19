@@ -2,3 +2,5 @@
 *~
 accounts.db*
 services/*/notifications/
+services/*/.env
+*.db

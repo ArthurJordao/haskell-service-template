@@ -4,7 +4,9 @@ module Settings
   )
 where
 
-import Auth.JWT (JWTSettings (..), makeJWTKey)
+import Auth.JWT (JWTSettings (..))
+import Crypto.JOSE.JWK (JWK)
+import Data.Aeson (eitherDecodeStrict')
 import qualified Ports.Consumer as KafkaPort
 import qualified Ports.Server as Server
 import RIO
@@ -14,7 +16,7 @@ import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 
 -- | Raw JWT environment variables (decoded via envy).
 data JWTEnvSettings = JWTEnvSettings
-  { jwtRawSecret :: !String,
+  { jwtRawPrivateKey :: !String,
     jwtRawAccessExpiry :: !Int,
     jwtRawRefreshExpiry :: !Int
   }
@@ -22,7 +24,7 @@ data JWTEnvSettings = JWTEnvSettings
 instance FromEnv JWTEnvSettings where
   fromEnv _ =
     JWTEnvSettings
-      <$> env "JWT_SECRET"
+      <$> env "JWT_PRIVATE_KEY"
       <*> (env "JWT_ACCESS_TOKEN_EXPIRY_SECONDS" .!= 900)
       <*> (env "JWT_REFRESH_TOKEN_EXPIRY_DAYS" .!= 7)
 
@@ -39,9 +41,12 @@ decoder = do
   kafkaSettings <- KafkaPort.decoder
   dbSettings <- Database.decoder
   jwtEnv <- liftIO (decodeEnv @JWTEnvSettings) >>= either throwString return
+  jwk <- case eitherDecodeStrict' (encodeUtf8 (pack (jwtRawPrivateKey jwtEnv))) :: Either String JWK of
+    Left err -> throwString $ "Invalid JWT_PRIVATE_KEY: " <> err
+    Right key -> return key
   let jwtSettings =
         JWTSettings
-          { jwtKey = makeJWTKey (encodeUtf8 (pack (jwtRawSecret jwtEnv))),
+          { jwtPrivateKey = jwk,
             jwtAccessTokenExpirySeconds = jwtRawAccessExpiry jwtEnv,
             jwtRefreshTokenExpiryDays = jwtRawRefreshExpiry jwtEnv
           }

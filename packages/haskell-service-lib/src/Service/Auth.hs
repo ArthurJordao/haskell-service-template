@@ -17,7 +17,7 @@ module Service.Auth
 where
 
 import Control.Monad.Except (ExceptT (..), runExceptT)
-import Crypto.JOSE.JWK (JWK, fromOctets)
+import Crypto.JOSE.JWK (JWK)
 import Crypto.JWT
   ( ClaimsSet,
     HasClaimsSet (..),
@@ -122,11 +122,11 @@ data JWTAuthConfig = JWTAuthConfig
     jwtAuthSubjectPrefix :: Text
   }
 
--- | Build a JWTAuthConfig from a raw HMAC secret and subject prefix.
-makeJWTAuthConfig :: ByteString -> Text -> JWTAuthConfig
-makeJWTAuthConfig secret prefix =
+-- | Build a JWTAuthConfig from a JWK and subject prefix.
+makeJWTAuthConfig :: JWK -> Text -> JWTAuthConfig
+makeJWTAuthConfig key prefix =
   JWTAuthConfig
-    { jwtAuthValidate = verifyToken (fromOctets secret),
+    { jwtAuthValidate = verifyToken key,
       jwtAuthSubjectPrefix = prefix
     }
 

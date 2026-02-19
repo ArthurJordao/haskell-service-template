@@ -1,7 +1,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 
-import Auth.JWT (JWTSettings (..), makeJWTKey)
+import Auth.JWT (JWTSettings (..))
+import Crypto.JOSE.JWA.JWK (Crv (..), KeyMaterialGenParam (..))
+import Crypto.JOSE.JWK (genJWK)
 import Control.Monad.Logger (runStderrLoggingT)
 import Data.Aeson (decode, encode)
 import qualified Data.ByteString.Lazy as BSL
@@ -94,17 +96,16 @@ instance HasMetrics TestApp where
 -- Fixtures
 -- ============================================================================
 
-testJwtSettings :: JWTSettings
-testJwtSettings =
-  JWTSettings
-    { jwtKey = makeJWTKey "test-secret-key-for-testing-only-must-be-at-least-32-bytes!",
-      jwtAccessTokenExpirySeconds = 900,
-      jwtRefreshTokenExpiryDays = 7
-    }
-
 -- Each test gets an isolated in-memory database and fresh app.
 withTestApp :: (Int -> IO ()) -> IO ()
 withTestApp action = do
+  testKey <- genJWK (ECGenParam P_256)
+  let testJwtSettings =
+        JWTSettings
+          { jwtPrivateKey = testKey,
+            jwtAccessTokenExpirySeconds = 900,
+            jwtRefreshTokenExpiryDays = 7
+          }
   let dbSettings =
         Database.Settings
           { Database.dbType = Database.SQLite,

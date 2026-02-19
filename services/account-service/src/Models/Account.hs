@@ -10,7 +10,9 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Models.Account (Account (..), migrateAll, AccountId) where
+{-# OPTIONS_GHC -Wno-missing-export-lists #-}
+
+module Models.Account where
 
 import Data.Aeson (FromJSON, ToJSON)
 import Database.Persist.TH
@@ -22,5 +24,7 @@ share
 Account
   name Text
   email Text
+  authUserId Int64
+  UniqueAuthUserId authUserId
   deriving Show Generic ToJSON FromJSON
   |]

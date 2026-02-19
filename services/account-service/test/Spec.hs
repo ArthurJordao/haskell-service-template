@@ -10,14 +10,11 @@ import Kafka.Consumer (TopicName (..))
 import Models.Account (Account (..), migrateAll)
 import Network.HTTP.Client
   ( Manager,
-    RequestBody (..),
     Response,
     defaultManagerSettings,
     httpLbs,
-    method,
     newManager,
     parseRequest,
-    requestBody,
     requestHeaders,
     responseBody,
     responseStatus,
@@ -25,8 +22,7 @@ import Network.HTTP.Client
 import Network.HTTP.Types.Status (status200, statusCode)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (testWithApplication)
-import Ports.Produce (AccountCreatedEvent (..))
-import Ports.Server (API, CreateAccountRequest (..))
+import Ports.Server (API)
 import Service.Events (UserRegisteredEvent (..))
 import qualified Ports.Consumer as KafkaPort
 import qualified Ports.Server as Server
@@ -71,6 +67,8 @@ import Service.Test.Kafka
     processAllMessages,
   )
 import qualified Data.Text.Encoding as TE
+import Crypto.JOSE.JWA.JWK (Crv (..), KeyMaterialGenParam (..))
+import Crypto.JOSE.JWK (genJWK)
 import Settings (Settings (..))
 import Servant.Server.Generic (AsServerT)
 import Test.Hspec
@@ -154,7 +152,6 @@ testServer ::
     HasCorrelationId env,
     Server.HasConfig env Settings,
     HasDB env,
-    HasKafkaProducer env,
     HasHttpClient env,
     HasMockHttp env,
     HasMetrics env
@@ -210,6 +207,7 @@ type TestAppContext = '[JWTAuthConfig]
 
 withTestApp :: (Int -> TestApp -> IO ()) -> IO ()
 withTestApp action = do
+  testKey <- genJWK (ECGenParam P_256)
   let testSettings =
         Settings
           { server = Server.Settings {Server.httpPort = 8080, Server.httpEnvironment = "test"},
@@ -227,7 +225,7 @@ withTestApp action = do
                   Database.dbPoolSize = 1,
                   Database.dbAutoMigrate = True
                 },
-            jwtSecret = "test-secret"
+            jwtPublicKey = testKey
           }
   logOptions <- logOptionsHandle stderr True
   withLogFunc logOptions $ \logFunc -> runRIO logFunc $ do
@@ -275,19 +273,17 @@ getJSON mgr url headers = do
       }
     mgr
 
-postJSON :: Manager -> String -> BSL.ByteString -> IO (Response BSL.ByteString)
-postJSON mgr url body = do
-  req <- parseRequest url
-  httpLbs
-    req
-      { method = "POST",
-        requestBody = RequestBodyLBS body,
-        requestHeaders = [("Content-Type", "application/json")]
-      }
-    mgr
-
 baseUrl :: Int -> String
 baseUrl port = "http://localhost:" <> show port
+
+-- | Create an account by publishing a user-registered Kafka event and processing it.
+setupAccount :: TestApp -> Int64 -> Text -> IO ()
+setupAccount testApp uid email = runRIO testApp $ do
+  let mockKafka = testAppMockKafka testApp
+      event = UserRegisteredEvent {ureUserId = uid, ureEmail = email}
+      consumerCfg = KafkaPort.consumerConfig (Settings.kafka (testAppSettings testApp))
+  mockProduceMessage (MockProducer mockKafka) (TopicName "user-registered") Nothing event
+  processAllMessages (MockConsumer mockKafka) consumerCfg
 
 -- ============================================================================
 -- Tests
@@ -302,62 +298,6 @@ spec = describe "Server" $ do
       response <- httpLbs request manager
       responseStatus response `shouldBe` status200
       responseBody response `shouldBe` "\"OK\""
-
-  it "create account and produce Kafka message" $ do
-    withTestApp $ \port' testApp -> do
-      manager <- newManager defaultManagerSettings
-
-      let createReq =
-            CreateAccountRequest
-              { createAccountName = "John Doe",
-                createAccountEmail = "john@example.com"
-              }
-
-      initialRequest <- parseRequest (baseUrl port' <> "/accounts")
-      let request =
-            initialRequest
-              { method = "POST",
-                requestBody = RequestBodyLBS (encode createReq),
-                requestHeaders = [("Content-Type", "application/json")]
-              }
-
-      response <- httpLbs request manager
-      responseStatus response `shouldBe` status200
-
-      let maybeAccount = decode @Account (responseBody response)
-      maybeAccount `shouldSatisfy` isJust
-      case maybeAccount of
-        Just account -> do
-          accountName account `shouldBe` "John Doe"
-          accountEmail account `shouldBe` "john@example.com"
-        Nothing -> expectationFailure "Failed to decode account response"
-
-      let mockState = testAppMockKafka testApp
-      messages <- atomically $ readTVar (messageQueue mockState)
-      Seq.length messages `shouldBe` 1
-
-      case Seq.viewl messages of
-        msg Seq.:< _ -> do
-          qmTopic msg `shouldBe` TopicName "account-created"
-          let decoded = decode @AccountCreatedEvent (encode (qmValue msg))
-          decoded `shouldSatisfy` isJust
-          case decoded of
-            Just event -> do
-              eventAccountId event `shouldBe` 1
-              eventAccountName event `shouldBe` "John Doe"
-              eventAccountEmail event `shouldBe` "john@example.com"
-            Nothing -> expectationFailure "Failed to decode AccountCreatedEvent"
-        Seq.EmptyL -> expectationFailure "No messages in queue"
-
-      let mockConsumer = MockConsumer mockState
-          consumerCfg = KafkaPort.consumerConfig (Settings.kafka $ testAppSettings testApp)
-      runRIO testApp $ processAllMessages mockConsumer consumerCfg
-
-      consumed <- atomically $ readTVar (consumedMessages mockState)
-      Seq.length consumed `shouldBe` 1
-
-      remainingMessages <- atomically $ readTVar (messageQueue mockState)
-      Seq.length remainingMessages `shouldBe` 0
 
   it "fetch external post via HTTP client (mocked)" $ do
     withTestApp $ \port' testApp -> do
@@ -413,12 +353,7 @@ spec = describe "Server" $ do
 
   it "creates account automatically on user-registered Kafka event" $ do
     withTestApp $ \port' testApp -> do
-      let mockKafka = testAppMockKafka testApp
-          event = UserRegisteredEvent {ureUserId = 42, ureEmail = "eve@example.com"}
-      runRIO testApp $ mockProduceMessage (MockProducer mockKafka) (TopicName "user-registered") Nothing event
-
-      let consumerCfg = KafkaPort.consumerConfig (Settings.kafka (testAppSettings testApp))
-      runRIO testApp $ processAllMessages (MockConsumer mockKafka) consumerCfg
+      setupAccount testApp 42 "eve@example.com"
 
       manager <- newManager defaultManagerSettings
       req <- parseRequest (baseUrl port' <> "/accounts/42")
@@ -430,22 +365,11 @@ spec = describe "Server" $ do
 
   describe "GET /accounts/:id (RequireOwner)" $ do
     it "returns 200 when JWT subject matches the account ID" $ do
-      withTestApp $ \port' _ -> do
+      withTestApp $ \port' testApp -> do
         manager <- newManager defaultManagerSettings
 
-        -- Create account → gets ID 1
-        let createReq = CreateAccountRequest "Alice" "alice@example.com"
-        createInitReq <- parseRequest (baseUrl port' <> "/accounts")
-        _ <-
-          httpLbs
-            createInitReq
-              { method = "POST",
-                requestBody = RequestBodyLBS (encode createReq),
-                requestHeaders = [("Content-Type", "application/json")]
-              }
-            manager
+        setupAccount testApp 1 "alice@example.com"
 
-        -- "token-user-1" → subject "user-1" → matches "user-" <> "1"
         req <- parseRequest (baseUrl port' <> "/accounts/1")
         resp <-
           httpLbs
@@ -455,19 +379,10 @@ spec = describe "Server" $ do
         statusCode (responseStatus resp) `shouldBe` 200
 
     it "returns 403 when JWT subject belongs to a different user" $ do
-      withTestApp $ \port' _ -> do
+      withTestApp $ \port' testApp -> do
         manager <- newManager defaultManagerSettings
 
-        let createReq = CreateAccountRequest "Bob" "bob@example.com"
-        createInitReq <- parseRequest (baseUrl port' <> "/accounts")
-        _ <-
-          httpLbs
-            createInitReq
-              { method = "POST",
-                requestBody = RequestBodyLBS (encode createReq),
-                requestHeaders = [("Content-Type", "application/json")]
-              }
-            manager
+        setupAccount testApp 1 "bob@example.com"
 
         -- "token-user-99" → subject "user-99" → does NOT match "user-1"
         req <- parseRequest (baseUrl port' <> "/accounts/1")
@@ -496,19 +411,10 @@ spec = describe "Server" $ do
         statusCode (responseStatus resp) `shouldBe` 401
 
     it "returns 200 for an admin token belonging to a different user" $ do
-      withTestApp $ \port' _ -> do
+      withTestApp $ \port' testApp -> do
         manager <- newManager defaultManagerSettings
 
-        let createReq = CreateAccountRequest "Carol" "carol@example.com"
-        createInitReq <- parseRequest (baseUrl port' <> "/accounts")
-        _ <-
-          httpLbs
-            createInitReq
-              { method = "POST",
-                requestBody = RequestBodyLBS (encode createReq),
-                requestHeaders = [("Content-Type", "application/json")]
-              }
-            manager
+        setupAccount testApp 1 "carol@example.com"
 
         -- "token-admin-99" is not the owner (user-1) but carries the "admin" scope
         req <- parseRequest (baseUrl port' <> "/accounts/1")

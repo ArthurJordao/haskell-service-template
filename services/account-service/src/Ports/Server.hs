@@ -1,7 +1,6 @@
 module Ports.Server
   ( API,
     Routes (..),
-    CreateAccountRequest (..),
     ExternalPost (..),
     HasConfig (..),
     server,
@@ -10,31 +9,22 @@ module Ports.Server
 where
 
 import Data.Aeson (FromJSON, ToJSON)
-import Domain.Accounts (Domain)
 import qualified Domain.Accounts as Domain
 import Models.Account (Account)
 import RIO
 import RIO.Text (pack)
 import Servant
 import Servant.Server.Generic (AsServerT)
-import Service.Auth (AccessTokenClaims (..), RequireOwnerOrScopes)
+import Service.Auth (RequireOwnerOrScopes)
 import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
 import Service.HttpClient (HasHttpClient, callServiceGet)
-import Service.Kafka (HasKafkaProducer (..))
 import Service.Metrics (HasMetrics (..), metricsHandler)
 import Service.Server
 
 -- ============================================================================
 -- API Types
 -- ============================================================================
-
-data CreateAccountRequest = CreateAccountRequest
-  { createAccountName :: !Text,
-    createAccountEmail :: !Text
-  }
-  deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
 
 data ExternalPost = ExternalPost
   { userId :: !Int,
@@ -66,12 +56,6 @@ data Routes route = Routes
           :> "accounts"
           :> RequireOwnerOrScopes "id" Int64 '["admin"]
           :> Get '[JSON] Account,
-    createAccount ::
-      route
-        :- Summary "Create a new account"
-          :> "accounts"
-          :> ReqBody '[JSON] CreateAccountRequest
-          :> Post '[JSON] Account,
     getExternalPost ::
       route
         :- Summary "Example: Fetch external post via HTTP client"
@@ -107,7 +91,6 @@ server ::
     HasCorrelationId env,
     HasConfig env settings,
     HasDB env,
-    HasKafkaProducer env,
     HasHttpClient env,
     HasMetrics env
   ) =>
@@ -117,7 +100,6 @@ server =
     { status = statusHandler,
       getAccounts = Domain.listAccounts,
       getAccountById = \accId _claims -> Domain.getAccount accId,
-      createAccount = \req -> Domain.createAccount (createAccountName req) (createAccountEmail req),
       getExternalPost = externalPostHandler,
       getMetrics = metricsEndpointHandler
     }

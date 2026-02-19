@@ -4,14 +4,13 @@ module Ports.Repository
   ( Repo,
     findAllAccounts,
     findAccountById,
-    findAccountByKey,
+    findAccountByAuthUserId,
     createAccount,
-    insertAccountWithKey,
   )
 where
 
-import Database.Persist.Sql (Entity, get, insert, insertKey, selectList, toSqlKey)
-import Models.Account (Account, AccountId)
+import Database.Persist.Sql (Entity, entityVal, get, getBy, insert, selectList, toSqlKey)
+import Models.Account (Account, AccountId, Unique (UniqueAuthUserId))
 import RIO
 import Service.CorrelationId (HasLogContext (..))
 import Service.Database (HasDB (..), runSqlPoolWithCid)
@@ -28,17 +27,12 @@ findAccountById accId = do
   pool <- view dbL
   runSqlPoolWithCid (get (toSqlKey accId :: AccountId)) pool
 
-findAccountByKey :: Repo env => AccountId -> RIO env (Maybe Account)
-findAccountByKey key = do
+findAccountByAuthUserId :: Repo env => Int64 -> RIO env (Maybe Account)
+findAccountByAuthUserId uid = do
   pool <- view dbL
-  runSqlPoolWithCid (get key) pool
+  fmap entityVal <$> runSqlPoolWithCid (getBy (UniqueAuthUserId uid)) pool
 
 createAccount :: Repo env => Account -> RIO env AccountId
 createAccount account = do
   pool <- view dbL
   runSqlPoolWithCid (insert account) pool
-
-insertAccountWithKey :: Repo env => AccountId -> Account -> RIO env ()
-insertAccountWithKey key account = do
-  pool <- view dbL
-  runSqlPoolWithCid (insertKey key account) pool

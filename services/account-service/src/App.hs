@@ -97,7 +97,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
-      jwtCfg = makeJWTAuthConfig (encodeUtf8 (jwtSecret settings)) "user-"
+      jwtCfg = makeJWTAuthConfig (jwtPublicKey settings) "user-"
 
   return
     App
@@ -120,20 +120,13 @@ runApp env = do
 
   runRIO env $ do
     let consumerCfg = KafkaPort.consumerConfig kafkaSettings
-    consumer <- Kafka.startConsumer consumerCfg
-
-    race_ (serverThread serverSettings) (kafkaThread consumer consumerCfg)
+    race_ (serverThread serverSettings) (Kafka.runConsumerLoop consumerCfg)
   where
     serverThread :: Server.Settings -> RIO App ()
     serverThread serverSettings = do
       appEnv <- ask
       logInfoC $ "Starting HTTP server on port " <> displayShow (Server.httpPort serverSettings)
       liftIO $ run (Server.httpPort serverSettings) (app appEnv)
-
-    kafkaThread :: Kafka.KafkaConsumer -> Kafka.ConsumerConfig App -> RIO App ()
-    kafkaThread consumer consumerCfg = do
-      logInfoC "Starting Kafka consumer"
-      Kafka.consumerLoop consumer consumerCfg
 
 type AppContext = '[JWTAuthConfig, App]
 

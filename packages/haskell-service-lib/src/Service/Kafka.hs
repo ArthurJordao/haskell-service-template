@@ -12,9 +12,11 @@ module Service.Kafka
     produceMessage,
     produceMessageWithCid,
     consumerLoop,
+    runConsumerLoop,
   )
 where
 
+import qualified Control.Concurrent as CC
 import Data.Aeson (ToJSON, Value, decode, encode)
 import qualified Data.Aeson as Aeson
 import Data.Time.Clock (UTCTime, getCurrentTime)
@@ -122,6 +124,7 @@ startConsumer config = do
           <> Kafka.Consumer.groupId (ConsumerGroupId configGroupId)
           <> noAutoCommit
           <> Kafka.Consumer.logLevel KafkaLogInfo
+          <> Kafka.Consumer.extraProps (Map.fromList [("auto.offset.reset", "earliest")])
 
   let topicList = map topic (topicHandlers config)
   let kafkaSubscription = topics topicList
@@ -291,3 +294,16 @@ consumerLoop consumer config = do
             Nothing -> do
               logWarnC $ "No handler configured for topic: " <> displayShow crTopic
               void $ commitAllOffsets OffsetCommit consumer
+
+-- | Start and run the Kafka consumer loop. If 'topicHandlers' is empty
+-- (the service only produces), this blocks the thread forever without
+-- opening a Kafka connection, so callers can always use @race_@ unconditionally.
+runConsumerLoop ::
+  (HasLogFunc env, HasCorrelationId env, HasLogContext env, HasKafkaProducer env) =>
+  ConsumerConfig env ->
+  RIO env ()
+runConsumerLoop config
+  | null (topicHandlers config) = liftIO $ forever $ CC.threadDelay maxBound
+  | otherwise = do
+      consumer <- startConsumer config
+      consumerLoop consumer config

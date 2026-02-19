@@ -96,20 +96,13 @@ runApp env = do
 
   runRIO env $ do
     let consumerCfg = KafkaPort.consumerConfig kafkaSettings
-    consumer <- Kafka.startConsumer consumerCfg
-
-    race_ (serverThread serverSettings) (kafkaThread consumer consumerCfg)
+    race_ (serverThread serverSettings) (Kafka.runConsumerLoop consumerCfg)
   where
     serverThread :: Server.Settings -> RIO App ()
     serverThread serverSettings = do
       appEnv <- ask
       logInfoC $ "Starting DLQ HTTP server on port " <> displayShow (Server.httpPort serverSettings)
       liftIO $ run (Server.httpPort serverSettings) (app appEnv)
-
-    kafkaThread :: Kafka.KafkaConsumer -> Kafka.ConsumerConfig App -> RIO App ()
-    kafkaThread consumer consumerCfg = do
-      logInfoC "Starting DLQ Kafka consumer"
-      Kafka.consumerLoop consumer consumerCfg
 
 type AppContext = '[App]
 

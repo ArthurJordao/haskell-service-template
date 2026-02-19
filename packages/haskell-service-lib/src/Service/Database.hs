@@ -37,20 +37,20 @@ data Settings = Settings
 
 instance FromEnv Settings where
   fromEnv _ = do
-    dbTypeStr <- pack <$> env "DB_TYPE" .!= "sqlite"
+    dbTypeStr <- pack <$> (env "DB_TYPE" .!= "sqlite")
     let dbType' = case toLower dbTypeStr of
           "postgresql" -> PostgreSQL
           "postgres" -> PostgreSQL
           _ -> SQLite
 
-    connectionString <-
-      pack <$> case dbType' of
-        SQLite -> env "DB_CONNECTION_STRING" .!= "accounts.db"
-        PostgreSQL -> env "DB_CONNECTION_STRING" .!= "host=localhost port=5432 user=postgres dbname=accounts password=postgres"
+    connectionString <- pack <$> case dbType' of
+      SQLite -> env "DB_CONNECTION_STRING" .!= "accounts.db"
+      PostgreSQL -> env "DB_CONNECTION_STRING" .!= "host=localhost port=5432 user=postgres dbname=accounts password=postgres"
 
-    Settings dbType' connectionString
-      <$> (env "DB_POOL_SIZE" .!= 10)
-      <*> (env "DB_AUTO_MIGRATE" .!= True)
+    poolSize <- env "DB_POOL_SIZE" .!= 10
+    autoMigrateStr <- pack <$> (env "DB_AUTO_MIGRATE" .!= "true")
+    let autoMigrate = toLower autoMigrateStr `elem` ["true", "1", "yes"]
+    return $ Settings dbType' connectionString poolSize autoMigrate
 
 decoder :: (HasLogFunc env) => RIO env Settings
 decoder = do

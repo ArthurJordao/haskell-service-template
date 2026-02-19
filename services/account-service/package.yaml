@@ -50,6 +50,7 @@ dependencies:
 - fast-logger
 - resource-pool
 - haskell-service-lib
+- jose
 
 ghc-options:
 - -Wall

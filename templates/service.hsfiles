@@ -27,6 +27,7 @@ dependencies:
 - envy
 - fast-logger
 - haskell-service-lib
+- jose
 - mustache
 - directory
 - filepath
@@ -351,20 +352,13 @@ runApp env = do
 
   runRIO env $ do
     let consumerCfg = KafkaPort.consumerConfig kafkaSettings
-    consumer <- Kafka.startConsumer consumerCfg
-
-    race_ (serverThread serverSettings) (kafkaThread consumer consumerCfg)
+    race_ (serverThread serverSettings) (Kafka.runConsumerLoop consumerCfg)
   where
     serverThread :: Server.Settings -> RIO App ()
     serverThread serverSettings = do
       appEnv <- ask
       logInfoC $ "Starting HTTP server on port " <> displayShow (Server.httpPort serverSettings)
       liftIO $ run (Server.httpPort serverSettings) (app appEnv)
-
-    kafkaThread :: Kafka.KafkaConsumer -> Kafka.ConsumerConfig App -> RIO App ()
-    kafkaThread consumer consumerCfg = do
-      logInfoC "Starting Kafka consumer"
-      Kafka.consumerLoop consumer consumerCfg
 
 app :: App -> Application
 app baseEnv = correlationIdMiddleware $ \req ->
@@ -402,15 +396,27 @@ where
 import qualified Ports.Consumer as KafkaPort
 import qualified Ports.Server as Server
 import qualified Service.Database as Database
+import Crypto.JOSE.JWK (JWK)
+import Data.Aeson (eitherDecodeStrict')
 import RIO
+import RIO.Text (pack)
 import System.Environment (lookupEnv)
+import System.Envy (FromEnv (..), decodeEnv, env)
+
+data JWTEnvSettings = JWTEnvSettings
+  { jwtRawPublicKey :: !String
+  }
+
+instance FromEnv JWTEnvSettings where
+  fromEnv _ = JWTEnvSettings <$> env "JWT_PUBLIC_KEY"
 
 data Settings = Settings
   { server :: !Server.Settings,
     kafka :: !KafkaPort.Settings,
     db :: !Database.Settings,
     templatesDir :: !FilePath,
-    notificationsDir :: !FilePath
+    notificationsDir :: !FilePath,
+    jwtPublicKey :: !JWK
   }
 
 decoder :: (HasLogFunc env) => RIO env Settings
@@ -420,13 +426,18 @@ decoder = do
   dbSettings <- Database.decoder
   tDir <- liftIO $ fromMaybe "resources/templates" <$> lookupEnv "TEMPLATES_DIR"
   nDir <- liftIO $ fromMaybe "notifications" <$> lookupEnv "NOTIFICATIONS_DIR"
+  jwtEnv <- liftIO (decodeEnv @JWTEnvSettings) >>= either throwString return
+  jwk <- case eitherDecodeStrict' (encodeUtf8 (pack (jwtRawPublicKey jwtEnv))) :: Either String JWK of
+    Left err -> throwString $ "Invalid JWT_PUBLIC_KEY: " <> err
+    Right key -> return key
   return
     Settings
       { server = serverSettings,
         kafka = kafkaSettings,
         db = dbSettings,
         templatesDir = tDir,
-        notificationsDir = nDir
+        notificationsDir = nDir,
+        jwtPublicKey = jwk
       }
 
 loadSettings :: LogFunc -> IO Settings
