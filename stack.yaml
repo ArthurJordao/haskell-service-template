@@ -33,6 +33,7 @@ packages:
 - services/account-service
 - services/dead-letter-queue
 - services/auth-service
+- services/notification-service
 - packages/haskell-service-lib
 # Dependency packages to be pulled from upstream that are not in the snapshot.
 # These entries can reference officially published versions as well as

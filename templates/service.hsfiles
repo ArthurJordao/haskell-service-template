@@ -16,35 +16,26 @@ description:         Please see the README on GitHub at <https://github.com/gith
 dependencies:
 - base >= 4.7 && < 5
 - rio
-- unliftio
 - aeson
 - text
 - servant
 - servant-server
 - warp
 - wai
-- persistent
-- persistent-sqlite
-- persistent-postgresql
-- esqueleto
-- monad-logger
 - hw-kafka-client
 - containers
 - envy
-- vault
-- random
 - fast-logger
-- resource-pool
 - haskell-service-lib
-- uuid
+- mustache
+- directory
+- filepath
+- persistent
+- persistent-template
+- persistent-sqlite
+- persistent-postgresql
+- monad-logger
 - time
-- lens
-- microlens
-- mtl
-- bytestring
-- unordered-containers
-- http-types
-- http-client
 
 ghc-options:
 - -Wall
@@ -91,16 +82,6 @@ executables:
     dependencies:
     - {{name}}
 
-  {{name}}-migrations:
-    main:                Main.hs
-    source-dirs:         migrations-app
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - {{name}}
-
 tests:
   {{name}}-test:
     main:                Spec.hs
@@ -114,6 +95,10 @@ tests:
     - hspec
     - http-client
     - http-types
+    - monad-logger
+    - mtl
+    - persistent
+    - persistent-sqlite
     - wai
     - warp
 
@@ -131,22 +116,18 @@ Generated from the monorepo service template.
 - services/{{name}}
 ```
 
-### 2. Rename the placeholder domain
+### 2. Customise the domain
 
-Search-replace `Item` / `item` with your entity name in:
-- `src/Models/Item.hs`
-- `src/Domain/Items.hs`
-- `src/Ports/Repository.hs`
-- `src/Ports/Produce.hs`
-- `src/Ports/Server.hs`
-- `test/Spec.hs`
+- Rename `Domain/Notifications.hs` and its types to match your domain.
+- Update the Kafka topic in `Ports/Consumer.hs`.
+- Add HTTP routes to `Ports/Server.hs` as needed.
+- Update `Models/SentNotification.hs` with your domain record fields.
 
 ### 3. Build and run
 
 ```sh
 stack build {{name}}
 stack run {{name}}-exe
-stack run {{name}}-migrations   # run DB migrations standalone
 stack test {{name}}
 ```
 
@@ -156,14 +137,16 @@ stack test {{name}}
 |---|---|---|
 | `PORT` | `8080` | HTTP server port |
 | `ENVIRONMENT` | `development` | Runtime environment |
-| `DB_TYPE` | `postgresql` | `postgresql` or `sqlite` |
-| `DB_CONNECTION_STRING` | — | Database URL |
-| `DB_POOL_SIZE` | `10` | Connection pool size |
-| `DB_AUTO_MIGRATE` | `false` | Run migrations on startup |
-| `KAFKA_BROKER` | `localhost:9092` | Kafka broker |
+| `KAFKA_BROKER` | `localhost:9092` | Kafka broker address |
 | `KAFKA_GROUP_ID` | `{{name}}` | Consumer group ID |
 | `KAFKA_DEAD_LETTER_TOPIC` | `DEADLETTER` | DLQ topic name |
 | `KAFKA_MAX_RETRIES` | `3` | Max retries before DLQ |
+| `TEMPLATES_DIR` | `resources/templates` | Path to Mustache templates |
+| `NOTIFICATIONS_DIR` | `notifications` | Directory for dispatched notification files |
+| `DB_TYPE` | `sqlite` | Database backend (`sqlite` or `postgresql`) |
+| `DB_CONNECTION_STRING` | `{{name}}.db` | Database connection string |
+| `DB_POOL_SIZE` | `10` | Connection pool size |
+| `DB_AUTO_MIGRATE` | `true` | Run migrations on startup |
 
 ## Architecture
 
@@ -173,14 +156,15 @@ src/
   Lib.hs              Startup orchestration
   Settings.hs         Environment variable loading
   Domain/
-    Items.hs          Business logic (rename to your entity)
+    Notifications.hs  Business logic — rename to your domain
   Models/
-    Item.hs           Persistent schema (rename to your entity)
+    SentNotification.hs  Persistent DB model for sent notifications
   Ports/
     Server.hs         Servant HTTP adapter (thin — delegates to Domain)
     Consumer.hs       Kafka consumer config + handlers
-    Produce.hs        Kafka publishing helpers
-    Repository.hs     Database queries
+resources/
+  templates/          Mustache email templates (.mustache)
+notifications/        Dispatched notification files (gitignored)
 ```
 
 {-# START_FILE CHANGELOG.md #-}
@@ -196,39 +180,6 @@ import RIO
 
 main :: IO ()
 main = app
-
-{-# START_FILE migrations-app/Main.hs #-}
--- | Standalone migration runner for production deployments.
--- Usage: stack exec {{name}}-migrations
-module Main (main) where
-
-import Control.Monad.Logger (runStderrLoggingT)
-import Database.Persist.Sql (runMigration, runSqlPool)
-import Models.Item (migrateAll)
-import RIO
-import qualified Service.Database as Database
-import System.IO (putStrLn)
-
-main :: IO ()
-main = do
-  putStrLn "=== {{name}} Migration Runner ==="
-  putStrLn "WARNING: Only run this on a single instance!"
-  putStrLn ""
-
-  logOptions <- logOptionsHandle stderr False
-  withLogFunc logOptions $ \logFunc -> runRIO logFunc $ do
-    dbSettings <- Database.decoder
-
-    logInfo $ "Database type: " <> displayShow (Database.dbType dbSettings)
-    logInfo "Connecting to database..."
-
-    pool <- liftIO $ Database.createConnectionPool dbSettings
-
-    logInfo "Running migrations..."
-
-    liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
-
-    logInfo "Migrations completed successfully!"
 
 {-# START_FILE src/Lib.hs #-}
 module Lib
@@ -248,6 +199,33 @@ app = do
     appEnv <- App.initializeApp settings logFunc
     App.runApp appEnv
 
+{-# START_FILE src/Models/SentNotification.hs #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -Wno-missing-export-lists #-}
+
+module Models.SentNotification where
+
+import Data.Time.Clock (UTCTime)
+import Database.Persist.TH
+import RIO (Show, Text)
+
+share
+  [mkPersist sqlSettings, mkMigrate "migrateAll"]
+  [persistLowerCase|
+SentNotification
+  templateName Text
+  channelType  Text
+  recipient    Text
+  content      Text
+  sentAt       UTCTime
+  deriving Show
+  |]
+
 {-# START_FILE src/App.hs #-}
 module App
   ( App (..),
@@ -262,12 +240,15 @@ where
 import Control.Monad.Logger (runStderrLoggingT)
 import qualified Data.Map.Strict as Map
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
+import Domain.Notifications (HasNotificationDir (..), HasTemplateCache (..))
 import Kafka.Producer (KafkaProducer)
-import Models.Item (migrateAll)
+import Models.SentNotification (migrateAll)
+import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import qualified Ports.Consumer as KafkaPort
 import qualified Ports.Server as Server
 import RIO
+import RIO.Text (pack)
 import Servant (hoistServer, serve)
 import Service.CorrelationId
   ( CorrelationId (..),
@@ -280,24 +261,23 @@ import Service.CorrelationId
     unCorrelationId,
   )
 import Service.Database (HasDB (..))
-import Service.Metrics.Database (recordDatabaseMetricsInternal)
 import qualified Service.Database as Database
-import Service.HttpClient (HasHttpClient (..), HttpClient)
-import qualified Service.HttpClient as HttpClient
 import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
-import Service.Metrics (HasMetrics (..), Metrics, initMetrics)
 import Settings (Settings (..), server)
+import qualified System.Directory as Dir
+import System.FilePath (takeBaseName, takeExtension, (</>))
+import Text.Mustache (Template, compileTemplate)
 
 data App = App
   { appLogFunc :: !LogFunc,
     appLogContext :: !(Map Text Text),
     appSettings :: !Settings,
     appCorrelationId :: !CorrelationId,
-    db :: !ConnectionPool,
     kafkaProducer :: !KafkaProducer,
-    httpClient :: !HttpClient,
-    appMetrics :: !Metrics
+    appTemplates :: !(Map Text Template),
+    appDb :: !ConnectionPool,
+    appNotificationsDir :: !FilePath
   }
 
 instance HasLogFunc App where
@@ -313,9 +293,14 @@ instance Server.HasConfig App Settings where
   settingsL = lens appSettings (\x y -> x {appSettings = y})
   httpSettings = server
 
+instance HasTemplateCache App where
+  templateCacheL = lens appTemplates (\x y -> x {appTemplates = y})
+
 instance HasDB App where
-  dbL = lens db (\x y -> x {db = y})
-  dbRecordQueryMetrics = recordDatabaseMetricsInternal
+  dbL = lens appDb (\x y -> x {appDb = y})
+
+instance HasNotificationDir App where
+  notificationDirL = lens appNotificationsDir (\x y -> x {appNotificationsDir = y})
 
 class HasKafkaProducerHandle env where
   kafkaProducerL :: Lens' env KafkaProducer
@@ -329,26 +314,19 @@ instance HasKafkaProducer App where
     cid <- view correlationIdL
     Kafka.produceMessageWithCid producer topic key value cid
 
-instance HasHttpClient App where
-  httpClientL = lens httpClient (\x y -> x {httpClient = y})
-
-instance HasMetrics App where
-  metricsL = lens appMetrics (\x y -> x {appMetrics = y})
-
 initializeApp :: Settings -> LogFunc -> IO App
 initializeApp settings logFunc = runRIO logFunc $ do
-  let dbSettings = database settings
-      kafkaSettings = kafka settings
-
-  pool <- liftIO $ Database.createConnectionPool dbSettings
-
-  when (Database.dbAutoMigrate dbSettings) $ do
-    logInfo "Running database migrations (DB_AUTO_MIGRATE=true)"
-    liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
+  let kafkaSettings = kafka settings
+      dbSettings = db settings
 
   producer <- Kafka.startProducer (KafkaPort.kafkaBroker kafkaSettings)
-  client <- HttpClient.initHttpClient
-  metrics <- liftIO initMetrics
+  templates <- liftIO $ loadTemplates (templatesDir settings)
+  logInfo $ "Loaded " <> displayShow (Map.size templates) <> " template(s)"
+
+  pool <- liftIO $ Database.createConnectionPool dbSettings
+  when (Database.dbAutoMigrate dbSettings) $ do
+    logInfo "Running database migrations"
+    liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
@@ -359,10 +337,10 @@ initializeApp settings logFunc = runRIO logFunc $ do
         appLogContext = initContext,
         appSettings = settings,
         appCorrelationId = initCid,
-        db = pool,
         kafkaProducer = producer,
-        httpClient = client,
-        appMetrics = metrics
+        appTemplates = templates,
+        appDb = pool,
+        appNotificationsDir = notificationsDir settings
       }
 
 runApp :: App -> IO ()
@@ -399,6 +377,21 @@ app baseEnv = correlationIdMiddleware $ \req ->
           & logContextL .~ Map.singleton "cid" cidText
    in serve (Proxy :: Proxy Server.API) (hoistServer (Proxy :: Proxy Server.API) (runRIO env) Server.server) req
 
+-- | Load all .mustache files from the given directory into a cache.
+loadTemplates :: FilePath -> IO (Map Text Template)
+loadTemplates dir = do
+  files <- Dir.listDirectory dir
+  let mustacheFiles = filter (\f -> takeExtension f == ".mustache") files
+  foldM (loadOne dir) Map.empty mustacheFiles
+  where
+    loadOne :: FilePath -> Map Text Template -> FilePath -> IO (Map Text Template)
+    loadOne d acc file = do
+      content <- readFileUtf8 (d </> file)
+      let name = takeBaseName file
+      case compileTemplate name content of
+        Left err -> throwString $ "Failed to compile template '" <> file <> "': " <> show err
+        Right tmpl -> return $ Map.insert (pack name) tmpl acc
+
 {-# START_FILE src/Settings.hs #-}
 module Settings
   ( Settings (..),
@@ -408,13 +401,16 @@ where
 
 import qualified Ports.Consumer as KafkaPort
 import qualified Ports.Server as Server
-import RIO
 import qualified Service.Database as Database
+import RIO
+import System.Environment (lookupEnv)
 
 data Settings = Settings
   { server :: !Server.Settings,
     kafka :: !KafkaPort.Settings,
-    database :: !Database.Settings
+    db :: !Database.Settings,
+    templatesDir :: !FilePath,
+    notificationsDir :: !FilePath
   }
 
 decoder :: (HasLogFunc env) => RIO env Settings
@@ -422,124 +418,185 @@ decoder = do
   serverSettings <- Server.decoder
   kafkaSettings <- KafkaPort.decoder
   dbSettings <- Database.decoder
+  tDir <- liftIO $ fromMaybe "resources/templates" <$> lookupEnv "TEMPLATES_DIR"
+  nDir <- liftIO $ fromMaybe "notifications" <$> lookupEnv "NOTIFICATIONS_DIR"
   return
     Settings
       { server = serverSettings,
         kafka = kafkaSettings,
-        database = dbSettings
+        db = dbSettings,
+        templatesDir = tDir,
+        notificationsDir = nDir
       }
 
 loadSettings :: LogFunc -> IO Settings
 loadSettings logFunc = runRIO logFunc decoder
 
-{-# START_FILE src/Models/Item.hs #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# START_FILE src/Domain/Notifications.hs #-}
+{-# LANGUAGE ConstraintKinds #-}
 
-module Models.Item (Item (..), migrateAll, ItemId) where
-
-import Data.Aeson (FromJSON, ToJSON)
-import Database.Persist.TH
-import RIO
-
-share
-  [mkPersist sqlSettings, mkMigrate "migrateAll"]
-  [persistLowerCase|
-Item
-  name Text
-  description Text Maybe
-  deriving Show Generic ToJSON FromJSON
-  |]
-
-{-# START_FILE src/Domain/Items.hs #-}
-module Domain.Items
+module Domain.Notifications
   ( Domain,
-    listItems,
-    getItemById,
-    createItem,
+    HasTemplateCache (..),
+    HasNotificationDir (..),
+    NotificationChannel (..),
+    NotificationMessage (..),
+    NotificationVariable (..),
+    processNotification,
   )
 where
 
-import Database.Persist.Sql (entityVal, fromSqlKey)
-import Models.Item (Item (..))
-import Ports.Produce (publishItemCreated)
-import qualified Ports.Repository as Repo
+import Data.Aeson (FromJSON, ToJSON)
+import Data.Time.Clock (UTCTime, getCurrentTime)
+import Data.Time.Format (defaultTimeLocale, formatTime)
+import qualified Data.Map.Strict as Map
+import qualified Data.Text as T
+import Database.Persist (insert_)
+import Models.SentNotification (SentNotification (..))
 import RIO
-import Servant (err404, errBody)
-import Service.CorrelationId (HasLogContext (..), logInfoC)
-import Service.Database (HasDB (..))
-import Service.Kafka (HasKafkaProducer (..))
+import Service.CorrelationId (HasLogContext (..), logErrorC, logInfoC)
+import Service.Database (HasDB (..), runSqlPoolWithCid)
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath ((</>))
+import Text.Mustache (Template, checkedSubstituteValue)
+import Text.Mustache.Types (mFromJSON)
 
--- | Constraint alias for domain functions that need DB access.
-type Domain env = (HasLogFunc env, HasLogContext env, HasDB env)
+-- | Constraint alias for domain functions.
+type Domain env = (HasLogFunc env, HasLogContext env, HasTemplateCache env, HasNotificationDir env, HasDB env)
 
--- | List all items.
-listItems :: Domain env => RIO env [Item]
-listItems = do
-  logInfoC "Listing items"
-  entities <- Repo.findAllItems
-  return $ map entityVal entities
+-- | Read-only access to the loaded Mustache template cache.
+class HasTemplateCache env where
+  templateCacheL :: Lens' env (Map Text Template)
 
--- | Fetch a single item by ID; throws 404 if not found.
-getItemById :: Domain env => Int64 -> RIO env Item
-getItemById itemId = do
-  logInfoC $ "Getting item: " <> displayShow itemId
-  mItem <- Repo.findItemById itemId
-  case mItem of
-    Nothing -> throwM err404 {errBody = "Item not found"}
-    Just item -> return item
+-- | Directory where dispatched notification files are written.
+class HasNotificationDir env where
+  notificationDirL :: Lens' env FilePath
 
--- | Create a new item and publish an event.
-createItem :: (Domain env, HasKafkaProducer env) => Text -> Maybe Text -> RIO env Item
-createItem name desc = do
-  logInfoC $ "Creating item: " <> display name
-  let newItem = Item {itemName = name, itemDescription = desc}
-  itemId <- Repo.createItem newItem
-  publishItemCreated (fromSqlKey itemId) name
-  return newItem
+-- ============================================================================
+-- Domain types
+-- ============================================================================
+
+-- | Supported notification delivery channels.
+data NotificationChannel
+  = Email !Text -- ^ Recipient email address
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+-- | A single template variable expressed as a named record.
+data NotificationVariable = NotificationVariable
+  { propertyName :: !Text,
+    propertyValue :: !Text
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+-- | Kafka message payload for dispatching a notification.
+data NotificationMessage = NotificationMessage
+  { notifTemplateName :: !Text,
+    notifVariables :: ![NotificationVariable],
+    notifChannel :: !NotificationChannel
+  }
+  deriving stock (Show, Eq, Generic)
+  deriving anyclass (FromJSON, ToJSON)
+
+-- ============================================================================
+-- Domain logic
+-- ============================================================================
+
+-- | Render the named Mustache template with the provided variables,
+-- dispatch via the chosen channel, and persist a record of the send.
+--
+-- Throws (→ dead letter) when:
+--   * The template name is not found in the cache.
+--   * One or more required template variables are missing from the message.
+processNotification :: Domain env => NotificationMessage -> RIO env ()
+processNotification msg = do
+  cache <- view templateCacheL
+  case Map.lookup (notifTemplateName msg) cache of
+    Nothing -> do
+      let errMsg = "Template not found: " <> notifTemplateName msg
+      logErrorC $ display errMsg
+      throwString (T.unpack errMsg)
+    Just tmpl -> do
+      let vars = Map.fromList [(propertyName v, propertyValue v) | v <- notifVariables msg]
+          context = mFromJSON vars
+          (errors, rendered) = checkedSubstituteValue tmpl context
+      unless (null errors) $ do
+        let errMsg = "Template substitution errors: " <> T.pack (show errors)
+        logErrorC $ display errMsg
+        throwString (T.unpack errMsg)
+      now <- liftIO getCurrentTime
+      dispatch now (notifChannel msg) (notifTemplateName msg) rendered
+      recordSentNotification now (notifChannel msg) (notifTemplateName msg) rendered
+
+-- ============================================================================
+-- Dispatch
+-- ============================================================================
+
+-- | Write the rendered notification to a file in the notifications directory.
+dispatch ::
+  (HasLogFunc env, HasLogContext env, HasNotificationDir env) =>
+  UTCTime ->
+  NotificationChannel ->
+  Text ->
+  Text ->
+  RIO env ()
+dispatch now (Email recipient) tmplName rendered = do
+  dir <- view notificationDirL
+  liftIO $ createDirectoryIfMissing True dir
+  let timeStr = formatTime defaultTimeLocale "%Y%m%d_%H%M%S_%q" now
+      sanitized = T.unpack $ T.replace "@" "_at_" $ T.replace "." "_" recipient
+      fileName = T.unpack tmplName <> "_email_" <> sanitized <> "_" <> timeStr <> ".txt"
+      filePath = dir </> fileName
+      content = "To: " <> recipient <> "\n\n" <> rendered
+  writeFileUtf8 filePath content
+  logInfoC $
+    "Notification dispatched via Email to '"
+      <> display recipient
+      <> "' → "
+      <> displayShow filePath
+
+-- ============================================================================
+-- Persistence
+-- ============================================================================
+
+-- | Insert a record of the sent notification into the database.
+recordSentNotification ::
+  (HasLogFunc env, HasLogContext env, HasDB env) =>
+  UTCTime ->
+  NotificationChannel ->
+  Text ->
+  Text ->
+  RIO env ()
+recordSentNotification now channel tmplName content = do
+  pool <- view dbL
+  let (channelType, recipient) = case channel of
+        Email addr -> ("email", addr)
+      record =
+        SentNotification
+          { sentNotificationTemplateName = tmplName,
+            sentNotificationChannelType = channelType,
+            sentNotificationRecipient = recipient,
+            sentNotificationContent = content,
+            sentNotificationSentAt = now
+          }
+  runSqlPoolWithCid (insert_ record) pool
 
 {-# START_FILE src/Ports/Server.hs #-}
 module Ports.Server
   ( API,
     Routes (..),
-    CreateItemRequest (..),
     HasConfig (..),
     server,
     module Service.Server,
   )
 where
 
-import Data.Aeson (FromJSON, ToJSON)
-import Domain.Items (Domain)
-import qualified Domain.Items as Domain
-import Models.Item (Item)
 import RIO
 import Servant
 import Servant.Server.Generic (AsServerT)
-import Service.CorrelationId (HasLogContext (..))
-import Service.Kafka (HasKafkaProducer (..))
-import Service.Metrics (HasMetrics (..), metricsHandler)
+import Service.CorrelationId (HasLogContext (..), logInfoC)
 import Service.Server
-
--- ============================================================================
--- Request / Response types
--- ============================================================================
-
-data CreateItemRequest = CreateItemRequest
-  { createItemName :: !Text,
-    createItemDescription :: !(Maybe Text)
-  }
-  deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
 
 -- ============================================================================
 -- Routes
@@ -550,29 +607,7 @@ data Routes route = Routes
       route
         :- Summary "Health check endpoint"
           :> "status"
-          :> Get '[JSON] Text,
-    getItems ::
-      route
-        :- Summary "List all items"
-          :> "items"
-          :> Get '[JSON] [Item],
-    getItem ::
-      route
-        :- Summary "Get item by ID"
-          :> "items"
-          :> Capture "id" Int64
-          :> Get '[JSON] Item,
-    createItem ::
-      route
-        :- Summary "Create a new item"
-          :> "items"
-          :> ReqBody '[JSON] CreateItemRequest
-          :> Post '[JSON] Item,
-    getMetrics ::
-      route
-        :- Summary "Prometheus metrics endpoint"
-          :> "metrics"
-          :> Get '[PlainText] Text
+          :> Get '[JSON] Text
   }
   deriving stock (Generic)
 
@@ -593,19 +628,12 @@ class HasConfig env settings | env -> settings where
 server ::
   ( HasLogFunc env,
     HasLogContext env,
-    HasConfig env settings,
-    HasDB env,
-    HasKafkaProducer env,
-    HasMetrics env
+    HasConfig env settings
   ) =>
   Routes (AsServerT (RIO env))
 server =
   Routes
-    { status = statusHandler,
-      getItems = Domain.listItems,
-      getItem = Domain.getItemById,
-      createItem = \req -> Domain.createItem (createItemName req) (createItemDescription req),
-      getMetrics = metricsEndpointHandler
+    { status = statusHandler
     }
 
 statusHandler ::
@@ -614,14 +642,8 @@ statusHandler ::
   RIO env Text
 statusHandler = do
   settings <- view (settingsL @env @settings)
-  let serverSettings = httpSettings @env @settings settings
-  logInfoC ("Status OK, env=" <> displayShow (httpEnvironment serverSettings))
+  logInfoC ("Status OK, env=" <> displayShow (httpEnvironment (httpSettings @env @settings settings)))
   return "OK"
-
-metricsEndpointHandler :: (HasMetrics env) => RIO env Text
-metricsEndpointHandler = do
-  metrics <- view metricsL
-  liftIO $ metricsHandler metrics
 
 {-# START_FILE src/Ports/Consumer.hs #-}
 module Ports.Consumer
@@ -630,23 +652,34 @@ module Ports.Consumer
   )
 where
 
+import qualified Data.Aeson as Aeson
 import Data.Aeson (Value)
+import Domain.Notifications (Domain, NotificationMessage, processNotification)
 import Kafka.Consumer (TopicName (..))
 import RIO
-import Service.CorrelationId (HasLogContext (..), logInfoC)
+import Service.CorrelationId (logErrorC)
 import Service.Kafka
 
--- | Build the Kafka consumer config.
--- Add topic handlers below; each handler delegates to Domain functions.
-consumerConfig :: Settings -> ConsumerConfig env
+-- | The Kafka topic this service consumes.
+-- Override with your own topic name.
+notificationsTopic :: TopicName
+notificationsTopic = TopicName "notifications"
+
+-- | Build the Kafka consumer configuration.
+-- The consumer loop automatically sends failing messages to the dead-letter
+-- topic after 'maxRetries' attempts — handlers only need to throw on error.
+consumerConfig ::
+  Domain env =>
+  Settings ->
+  ConsumerConfig env
 consumerConfig kafkaSettings =
   ConsumerConfig
     { brokerAddress = kafkaBroker kafkaSettings,
       groupId = kafkaGroupId kafkaSettings,
       topicHandlers =
         [ TopicHandler
-            { topic = TopicName "item-created",
-              handler = itemCreatedHandler
+            { topic = notificationsTopic,
+              handler = notificationHandler
             }
         ],
       deadLetterTopic = TopicName (kafkaDeadLetterTopic kafkaSettings),
@@ -655,70 +688,19 @@ consumerConfig kafkaSettings =
       consumerRecordOffsetMetrics = \_ _ _ _ -> return ()
     }
 
--- | Example consumer handler. Replace with real Domain calls.
-itemCreatedHandler :: (HasLogFunc env, HasLogContext env) => Value -> RIO env ()
-itemCreatedHandler jsonValue =
-  logInfoC $ "Received item-created event: " <> displayShow jsonValue
-
-{-# START_FILE src/Ports/Produce.hs #-}
-module Ports.Produce
-  ( ItemCreatedEvent (..),
-    publishItemCreated,
-  )
-where
-
-import Data.Aeson (ToJSON)
-import Kafka.Consumer (TopicName (..))
-import RIO
-import Service.Kafka (HasKafkaProducer (..))
-
-data ItemCreatedEvent = ItemCreatedEvent
-  { itemCreatedId :: !Int64,
-    itemCreatedName :: !Text
-  }
-  deriving stock (Show, Generic)
-  deriving anyclass (ToJSON)
-
-publishItemCreated :: HasKafkaProducer env => Int64 -> Text -> RIO env ()
-publishItemCreated itemId name =
-  produceKafkaMessage
-    (TopicName "item-created")
-    Nothing
-    ItemCreatedEvent {itemCreatedId = itemId, itemCreatedName = name}
-
-{-# START_FILE src/Ports/Repository.hs #-}
-{-# LANGUAGE ConstraintKinds #-}
-
-module Ports.Repository
-  ( Repo,
-    findAllItems,
-    findItemById,
-    createItem,
-  )
-where
-
-import Database.Persist.Sql (Entity, SelectOpt (..), get, insert, selectList, toSqlKey)
-import Models.Item (Item, ItemId)
-import RIO
-import Service.CorrelationId (HasLogContext (..))
-import Service.Database (HasDB (..), runSqlPoolWithCid)
-
-type Repo env = (HasLogFunc env, HasLogContext env, HasDB env)
-
-findAllItems :: Repo env => RIO env [Entity Item]
-findAllItems = do
-  pool <- view dbL
-  runSqlPoolWithCid (selectList [] [LimitTo 100]) pool
-
-findItemById :: Repo env => Int64 -> RIO env (Maybe Item)
-findItemById itemId = do
-  pool <- view dbL
-  runSqlPoolWithCid (get (toSqlKey itemId :: ItemId)) pool
-
-createItem :: Repo env => Item -> RIO env ItemId
-createItem item = do
-  pool <- view dbL
-  runSqlPoolWithCid (insert item) pool
+-- | Parse and dispatch a notification message.
+-- Throws (→ dead letter) if the payload cannot be decoded as JSON.
+notificationHandler ::
+  Domain env =>
+  Value ->
+  RIO env ()
+notificationHandler jsonValue =
+  case Aeson.fromJSON @NotificationMessage jsonValue of
+    Aeson.Error err -> do
+      let msg = "Failed to parse notification message: " <> err
+      logErrorC (fromString msg)
+      throwString msg
+    Aeson.Success msg -> processNotification msg
 
 {-# START_FILE test/Spec.hs #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -726,33 +708,33 @@ createItem item = do
 
 import Control.Monad.Except (ExceptT (..))
 import Control.Monad.Logger (runStderrLoggingT)
-import Data.Aeson (decode, encode)
-import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map.Strict as Map
+import qualified Data.Text as T
+import Database.Persist (Entity (..), selectList)
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
-import Models.Item (Item (..), migrateAll)
+import Domain.Notifications
+  ( HasNotificationDir (..),
+    HasTemplateCache (..),
+    NotificationChannel (..),
+    NotificationMessage (..),
+    NotificationVariable (..),
+    processNotification,
+  )
+import Models.SentNotification (SentNotification (..), migrateAll)
 import Network.HTTP.Client
-  ( Manager,
-    RequestBody (..),
-    Response,
-    defaultManagerSettings,
+  ( defaultManagerSettings,
     httpLbs,
-    method,
     newManager,
     parseRequest,
-    requestBody,
-    requestHeaders,
-    responseBody,
     responseStatus,
   )
-import Network.HTTP.Types.Status (status200, statusCode)
+import Network.HTTP.Types.Status (status200)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (testWithApplication)
 import qualified Ports.Consumer as KafkaPort
-import Ports.Server (API, CreateItemRequest (..), HasConfig (..))
+import Ports.Server (API, HasConfig (..))
 import qualified Ports.Server as Server
 import RIO hiding (Handler)
-import Servant (Proxy (..))
 import Servant.Server (Handler (..), ServerError, hoistServer, serve)
 import Service.CorrelationId
   ( CorrelationId (..),
@@ -760,12 +742,14 @@ import Service.CorrelationId
     HasLogContext (..),
     defaultCorrelationId,
   )
-import Service.Database (HasDB (..))
+import Service.Database (HasDB (..), runSqlPoolWithCid)
 import qualified Service.Database as Database
 import Service.Kafka (HasKafkaProducer (..))
-import Service.Metrics (HasMetrics (..), Metrics, initMetrics)
 import Settings (Settings (..))
+import System.Directory (listDirectory)
+import System.FilePath ((</>))
 import Test.Hspec
+import Text.Mustache (Template, compileTemplate)
 
 -- ============================================================================
 -- Test Environment
@@ -774,10 +758,11 @@ import Test.Hspec
 data TestApp = TestApp
   { testLogFunc :: !LogFunc,
     testLogContext :: !(Map Text Text),
-    testSettings :: !Settings,
+    testSettings :: Settings,
     testCorrelationId :: !CorrelationId,
-    testDb :: !ConnectionPool,
-    testMetrics :: !Metrics
+    testTemplates :: !(Map Text Template),
+    testNotificationsDir :: !FilePath,
+    testDb :: !ConnectionPool
   }
 
 instance HasLogFunc TestApp where
@@ -793,63 +778,113 @@ instance HasConfig TestApp Settings where
   settingsL = lens testSettings (\x y -> x {testSettings = y})
   httpSettings = server
 
+instance HasTemplateCache TestApp where
+  templateCacheL = lens testTemplates (\x y -> x {testTemplates = y})
+
+instance HasNotificationDir TestApp where
+  notificationDirL = lens testNotificationsDir (\x y -> x {testNotificationsDir = y})
+
 instance HasDB TestApp where
   dbL = lens testDb (\x y -> x {testDb = y})
 
 instance HasKafkaProducer TestApp where
   produceKafkaMessage _ _ _ = return ()
 
-instance HasMetrics TestApp where
-  metricsL = lens testMetrics (\x y -> x {testMetrics = y})
-
 -- ============================================================================
 -- Fixtures
 -- ============================================================================
 
-withTestApp :: (Int -> IO ()) -> IO ()
-withTestApp action = do
-  let dbSettings =
-        Database.Settings
-          { Database.dbType = Database.SQLite,
-            Database.dbConnectionString = ":memory:",
-            Database.dbPoolSize = 1,
-            Database.dbAutoMigrate = False
+-- | Compile a template at test time; fails loudly on a parse error.
+unsafeCompile :: String -> Text -> Template
+unsafeCompile name src =
+  case compileTemplate name src of
+    Left err -> error $ "Test template compile error: " <> show err
+    Right tmpl -> tmpl
+
+-- | In-memory templates used in tests. Mirrors resources/templates/.
+-- Use actual Mustache variables so missing-variable tests work correctly.
+testTemplateCache :: Map Text Template
+testTemplateCache =
+  Map.fromList
+    [ ("welcome_email", unsafeCompile "welcome_email" "Hello {{name}}, welcome! Your email: {{email}}")
+    , ("password_reset", unsafeCompile "password_reset" "Reset password for {{name}} ({{email}}) at {{resetUrl}}")
+    ]
+
+-- | Build an in-memory SQLite connection pool and run migrations.
+makeTestPool :: IO ConnectionPool
+makeTestPool = do
+  pool <-
+    Database.createConnectionPool
+      Database.Settings
+        { Database.dbType = Database.SQLite,
+          Database.dbConnectionString = ":memory:",
+          Database.dbPoolSize = 1,
+          Database.dbAutoMigrate = False
+        }
+  runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
+  return pool
+
+-- | Run an action with a fully initialised TestApp in a temporary notifications directory.
+withDomainApp :: (TestApp -> IO ()) -> IO ()
+withDomainApp action =
+  withSystemTempDirectory "notif-test" $ \tmpDir -> do
+    pool <- makeTestPool
+    logOptions <- logOptionsHandle stderr False
+    withLogFunc logOptions $ \logFunc ->
+      action
+        TestApp
+          { testLogFunc = logFunc,
+            testLogContext = Map.empty,
+            testSettings = error "unused",
+            testCorrelationId = defaultCorrelationId,
+            testTemplates = testTemplateCache,
+            testNotificationsDir = tmpDir,
+            testDb = pool
           }
-      testSettings =
-        Settings
-          { server = Server.Settings {Server.httpPort = 0, Server.httpEnvironment = "test"},
-            kafka =
-              KafkaPort.Settings
-                { KafkaPort.kafkaBroker = "localhost:9092",
-                  KafkaPort.kafkaGroupId = "{{name}}-test",
-                  KafkaPort.kafkaDeadLetterTopic = "DEADLETTER",
-                  KafkaPort.kafkaMaxRetries = 3
-                },
-            database = dbSettings
-          }
-  logOptions <- logOptionsHandle stderr False
-  withLogFunc logOptions $ \logFunc -> do
-    pool <- Database.createConnectionPool dbSettings
-    runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
-    metrics <- initMetrics
-    let testApp =
-          TestApp
-            { testLogFunc = logFunc,
-              testLogContext = Map.empty,
-              testSettings = testSettings,
-              testCorrelationId = defaultCorrelationId,
-              testDb = pool,
-              testMetrics = metrics
+
+withTestApp :: (Int -> TestApp -> IO ()) -> IO ()
+withTestApp action =
+  withSystemTempDirectory "notif-test" $ \tmpDir -> do
+    pool <- makeTestPool
+    let testSettings =
+          Settings
+            { server = Server.Settings {Server.httpPort = 0, Server.httpEnvironment = "test"},
+              kafka =
+                KafkaPort.Settings
+                  { KafkaPort.kafkaBroker = "localhost:9092",
+                    KafkaPort.kafkaGroupId = "{{name}}-test",
+                    KafkaPort.kafkaDeadLetterTopic = "DEADLETTER",
+                    KafkaPort.kafkaMaxRetries = 3
+                  },
+              db =
+                Database.Settings
+                  { Database.dbType = Database.SQLite,
+                    Database.dbConnectionString = ":memory:",
+                    Database.dbPoolSize = 1,
+                    Database.dbAutoMigrate = False
+                  },
+              templatesDir = "resources/templates",
+              notificationsDir = tmpDir
             }
-    testWithApplication (pure $ appToWai testApp) action
+    logOptions <- logOptionsHandle stderr False
+    withLogFunc logOptions $ \logFunc -> do
+      let testApp =
+            TestApp
+              { testLogFunc = logFunc,
+                testLogContext = Map.empty,
+                testSettings = testSettings,
+                testCorrelationId = defaultCorrelationId,
+                testTemplates = testTemplateCache,
+                testNotificationsDir = tmpDir,
+                testDb = pool
+              }
+      testWithApplication (pure $ appToWai testApp) $ \port -> action port testApp
 
 appToWai :: TestApp -> Application
 appToWai env =
   serve (Proxy @API) $
     hoistServer (Proxy @API) toHandler Server.server
   where
-    -- throwM in RIO throws ServerError as an IO exception.
-    -- Handler = ExceptT ServerError IO, so we catch and re-route it.
     toHandler :: forall a. RIO TestApp a -> Handler a
     toHandler action =
       Handler $ ExceptT $
@@ -857,72 +892,76 @@ appToWai env =
           `catch` (\(e :: ServerError) -> return (Left e))
 
 -- ============================================================================
--- HTTP Helpers
--- ============================================================================
-
-postJSON :: Manager -> String -> BSL.ByteString -> IO (Response BSL.ByteString)
-postJSON mgr url body = do
-  req <- parseRequest url
-  httpLbs
-    req
-      { method = "POST",
-        requestBody = RequestBodyLBS body,
-        requestHeaders = [("Content-Type", "application/json")]
-      }
-    mgr
-
-baseUrl :: Int -> String
-baseUrl port = "http://localhost:" <> show port
-
--- ============================================================================
 -- Tests
 -- ============================================================================
 
 spec :: Spec
-spec = around withTestApp $ do
+spec = do
+  describe "Domain.Notifications.processNotification" $ do
+    it "renders a template, writes a file, and persists a DB record" $
+      withDomainApp $ \testApp -> do
+        let msg =
+              NotificationMessage
+                { notifTemplateName = "welcome_email",
+                  notifVariables =
+                    [ NotificationVariable "name" "Alice",
+                      NotificationVariable "email" "alice@example.com"
+                    ],
+                  notifChannel = Email "alice@example.com"
+                }
+        runRIO testApp (processNotification msg)
+
+        -- File was written
+        files <- listDirectory (testNotificationsDir testApp)
+        case files of
+          [file] -> do
+            content <- T.unpack <$> readFileUtf8 (testNotificationsDir testApp </> file)
+            content `shouldContain` "alice@example.com"
+            content `shouldContain` "Alice"
+          _ -> expectationFailure $ "Expected 1 notification file, got " <> show (length files)
+
+        -- DB record was persisted
+        records :: [Entity SentNotification] <-
+          runRIO testApp $ do
+            pool <- view dbL
+            runSqlPoolWithCid (selectList [] []) pool
+        case records of
+          [r] -> do
+            let SentNotification{..} = entityVal r
+            sentNotificationTemplateName `shouldBe` "welcome_email"
+            sentNotificationChannelType `shouldBe` "email"
+            sentNotificationRecipient `shouldBe` "alice@example.com"
+          _ -> expectationFailure $ "Expected 1 DB record, got " <> show (length records)
+
+    it "fails when a required variable is missing" $
+      withDomainApp $ \testApp -> do
+        let msg =
+              NotificationMessage
+                { notifTemplateName = "welcome_email",
+                  notifVariables = [NotificationVariable "name" "Alice"], -- missing "email"
+                  notifChannel = Email "alice@example.com"
+                }
+        result :: Either SomeException () <- try $ runRIO testApp (processNotification msg)
+        result `shouldSatisfy` isLeft
+
+    it "fails when the template does not exist" $
+      withDomainApp $ \testApp -> do
+        let msg =
+              NotificationMessage
+                { notifTemplateName = "nonexistent_template",
+                  notifVariables = [NotificationVariable "name" "Alice"],
+                  notifChannel = Email "alice@example.com"
+                }
+        result :: Either SomeException () <- try $ runRIO testApp (processNotification msg)
+        result `shouldSatisfy` isLeft
+
   describe "GET /status" $ do
-    it "returns 200 OK" $ \port -> do
-      mgr <- newManager defaultManagerSettings
-      req <- parseRequest (baseUrl port <> "/status")
-      resp <- httpLbs req mgr
-      responseStatus resp `shouldBe` status200
-
-  describe "GET /items" $ do
-    it "returns an empty list initially" $ \port -> do
-      mgr <- newManager defaultManagerSettings
-      req <- parseRequest (baseUrl port <> "/items")
-      resp <- httpLbs req mgr
-      responseStatus resp `shouldBe` status200
-      decode @[Item] (responseBody resp) `shouldBe` Just []
-
-  describe "POST /items" $ do
-    it "creates an item and returns it" $ \port -> do
-      mgr <- newManager defaultManagerSettings
-      let createReq = CreateItemRequest {createItemName = "Widget", createItemDescription = Just "A test widget"}
-      resp <- postJSON mgr (baseUrl port <> "/items") (encode createReq)
-      responseStatus resp `shouldBe` status200
-      let mItem = decode @Item (responseBody resp)
-      mItem `shouldSatisfy` isJust
-      case mItem of
-        Nothing -> expectationFailure "Failed to decode Item"
-        Just item -> do
-          itemName item `shouldBe` "Widget"
-          itemDescription item `shouldBe` Just "A test widget"
-
-  describe "GET /items/:id" $ do
-    it "returns the item after creation" $ \port -> do
-      mgr <- newManager defaultManagerSettings
-      let createReq = CreateItemRequest {createItemName = "Gadget", createItemDescription = Nothing}
-      _ <- postJSON mgr (baseUrl port <> "/items") (encode createReq)
-      req <- parseRequest (baseUrl port <> "/items/1")
-      resp <- httpLbs req mgr
-      responseStatus resp `shouldBe` status200
-
-    it "returns 404 for a missing item" $ \port -> do
-      mgr <- newManager defaultManagerSettings
-      req <- parseRequest (baseUrl port <> "/items/999")
-      resp <- httpLbs req mgr
-      statusCode (responseStatus resp) `shouldBe` 404
+    it "returns 200 OK" $
+      withTestApp $ \port _ -> do
+        mgr <- newManager defaultManagerSettings
+        req <- parseRequest ("http://localhost:" <> show port <> "/status")
+        resp <- httpLbs req mgr
+        responseStatus resp `shouldBe` status200
 
 main :: IO ()
 main = hspec spec
