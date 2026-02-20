@@ -25,12 +25,13 @@ source-repository head
 library
   exposed-modules:
       App
+      DB.SentNotification
       Domain.Notifications
       Lib
-      Models.SentNotification
       Ports.Consumer
       Ports.Server
       Settings
+      Types.In.Notifications
   other-modules:
       Paths_notification_service
   autogen-modules:

@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { TokenResponse } from '../types'
+import type { TokenResponse } from '../types/in/Auth'
 
 const AUTH_URL = import.meta.env.VITE_AUTH_URL as string
 

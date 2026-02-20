@@ -11,28 +11,27 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-missing-export-lists #-}
 
-module Models.DeadLetter where
+module DB.User where
 
-import Data.Aeson (FromJSON, ToJSON)
-import Data.Time.Clock (UTCTime)
+import Data.Time (UTCTime)
 import Database.Persist.TH
 import RIO
 
 share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
   [persistLowerCase|
-DeadLetter
-  originalTopic Text
-  originalMessage Text
-  originalHeaders Text
-  errorType Text
-  errorDetails Text
-  correlationId Text
+User
+  email Text
+  passwordHash Text
+  UniqueEmail email
+  deriving Show Generic
+
+RefreshToken
+  jti Text
+  userId UserId
+  expiresAt UTCTime
+  revoked Bool default=False
   createdAt UTCTime
-  retryCount Int
-  status Text default='pending'
-  replayedAt UTCTime Maybe
-  replayedBy Text Maybe
-  replayResult Text Maybe
-  deriving Show Generic ToJSON FromJSON
+  UniqueJti jti
+  deriving Show Generic
   |]

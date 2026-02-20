@@ -15,7 +15,7 @@ import Domain.Notifications
     NotificationVariable (..),
     processNotification,
   )
-import Models.SentNotification (SentNotification (..), migrateAll)
+import DB.SentNotification (SentNotification (..), migrateAll)
 import Network.HTTP.Client
   ( defaultManagerSettings,
     httpLbs,

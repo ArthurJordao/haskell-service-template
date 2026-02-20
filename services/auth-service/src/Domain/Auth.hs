@@ -19,8 +19,8 @@ import Auth.JWT
 import Auth.Password (hashPassword, verifyPassword)
 import Data.Time (addUTCTime, getCurrentTime, nominalDay)
 import Database.Persist.Sql (Entity (..), fromSqlKey)
-import Models.User (UserId)
-import qualified Models.User as User
+import DB.User (UserId)
+import qualified DB.User as User
 import Ports.Produce (publishUserRegistered)
 import Ports.Repository
 import RIO

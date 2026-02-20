@@ -25,7 +25,7 @@ import Database.Persist.Sql
     (=.),
     (==.),
   )
-import Models.DeadLetter
+import DB.DeadLetter
   ( DeadLetter,
     DeadLetterId,
     EntityField (..),

@@ -1,19 +1,15 @@
 module Ports.Server
   ( API,
     Routes (..),
-    RegisterRequest (..),
-    LoginRequest (..),
-    RefreshRequest (..),
-    LogoutRequest (..),
-    AuthTokens (..),
     HasConfig (..),
     server,
     module Service.Server,
+    module Types.In.Auth,
+    module Types.Out.Auth,
   )
 where
 
 import Auth.JWT (JWTSettings (..))
-import Data.Aeson (FromJSON, ToJSON)
 import qualified Domain.Auth as Domain
 import RIO
 import Servant
@@ -23,45 +19,8 @@ import Service.Database (HasDB (..))
 import Service.Kafka (HasKafkaProducer (..))
 import Service.Metrics (HasMetrics (..), metricsHandler)
 import Service.Server
-
--- ============================================================================
--- API Types
--- ============================================================================
-
-data RegisterRequest = RegisterRequest
-  { email :: !Text,
-    password :: !Text
-  }
-  deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
-
-data LoginRequest = LoginRequest
-  { email :: !Text,
-    password :: !Text
-  }
-  deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
-
-data RefreshRequest = RefreshRequest
-  { refreshToken :: !Text
-  }
-  deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
-
-data LogoutRequest = LogoutRequest
-  { refreshToken :: !Text
-  }
-  deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
-
-data AuthTokens = AuthTokens
-  { accessToken :: !Text,
-    refreshToken :: !Text,
-    tokenType :: !Text,
-    expiresIn :: !Int
-  }
-  deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
+import Types.In.Auth
+import Types.Out.Auth
 
 -- ============================================================================
 -- Routes

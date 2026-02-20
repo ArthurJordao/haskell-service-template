@@ -13,7 +13,7 @@ import qualified Data.Map.Strict as Map
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
 import Domain.Notifications (HasNotificationDir (..), HasTemplateCache (..))
 import Kafka.Producer (KafkaProducer)
-import Models.SentNotification (migrateAll)
+import DB.SentNotification (migrateAll)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (run)
 import qualified Ports.Consumer as KafkaPort

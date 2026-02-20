@@ -9,7 +9,7 @@ module Domain.Accounts
 where
 
 import Database.Persist.Sql (entityVal)
-import Models.Account (Account (..))
+import DB.Account (Account (..))
 import qualified Ports.Repository as Repo
 import RIO
 import Servant (err404, errBody)

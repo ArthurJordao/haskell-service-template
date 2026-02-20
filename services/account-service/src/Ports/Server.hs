@@ -10,7 +10,7 @@ where
 
 import Data.Aeson (FromJSON, ToJSON)
 import qualified Domain.Accounts as Domain
-import Models.Account (Account)
+import DB.Account (Account)
 import RIO
 import RIO.Text (pack)
 import Servant

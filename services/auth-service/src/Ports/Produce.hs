@@ -5,8 +5,8 @@ where
 
 import Kafka.Consumer (TopicName (..))
 import RIO
-import Service.Events (UserRegisteredEvent (..))
 import Service.Kafka (HasKafkaProducer (..))
+import Types.Out.UserRegistered (UserRegisteredEvent (..))
 
 publishUserRegistered :: HasKafkaProducer env => Int64 -> Text -> RIO env ()
 publishUserRegistered uid email =

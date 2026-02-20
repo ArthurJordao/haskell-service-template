@@ -4,7 +4,7 @@ module Main (main) where
 
 import Control.Monad.Logger (runStderrLoggingT)
 import Database.Persist.Sql (runMigration, runSqlPool)
-import Models.User (migrateAll)
+import DB.User (migrateAll)
 import RIO
 import qualified Service.Database as Database
 import System.IO (putStrLn)

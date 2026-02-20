@@ -9,7 +9,7 @@ import Data.Aeson (decode, encode)
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map.Strict as Map
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
-import Models.User (migrateAll)
+import DB.User (migrateAll)
 import Network.HTTP.Client
   ( Manager,
     RequestBody (..),

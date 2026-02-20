@@ -11,8 +11,8 @@ import Ports.Produce (publishWelcomeNotification)
 import RIO
 import Service.CorrelationId (HasLogContext (..), logInfoC, logWarnC)
 import Service.Database (HasDB (..))
-import Service.Events (UserRegisteredEvent (..))
 import Service.Kafka
+import Types.In.UserRegistered (UserRegisteredEvent (..))
 
 consumerConfig ::
   ( HasLogFunc env,
@@ -57,6 +57,6 @@ userRegisteredHandler ::
 userRegisteredHandler jsonValue =
   case fromJSON @UserRegisteredEvent jsonValue of
     Error e -> logWarnC $ "Invalid user-registered payload: " <> displayShow e
-    Success (UserRegisteredEvent uid email) -> do
-      processUserRegistered uid email
-      publishWelcomeNotification email
+    Success (UserRegisteredEvent uid userEmail) -> do
+      processUserRegistered uid userEmail
+      publishWelcomeNotification userEmail

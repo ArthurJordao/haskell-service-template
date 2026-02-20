@@ -7,7 +7,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text.Encoding (encodeUtf8)
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
 import Kafka.Consumer (TopicName (..))
-import Models.Account (Account (..), migrateAll)
+import DB.Account (Account (..), migrateAll)
 import Network.HTTP.Client
   ( Manager,
     Response,
@@ -23,7 +23,7 @@ import Network.HTTP.Types.Status (status200, statusCode)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (testWithApplication)
 import Ports.Server (API)
-import Service.Events (UserRegisteredEvent (..))
+import Types.In.UserRegistered (UserRegisteredEvent (..))
 import qualified Ports.Consumer as KafkaPort
 import qualified Ports.Server as Server
 import RIO

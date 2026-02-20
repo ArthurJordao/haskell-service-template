@@ -10,7 +10,7 @@ import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool, insert)
 import qualified Ports.Server as Server
 import qualified Ports.Consumer as KafkaPort
 import Kafka.Consumer (TopicName (..))
-import Models.DeadLetter (DeadLetter (..), migrateAll)
+import DB.DeadLetter (DeadLetter (..), migrateAll)
 import Network.HTTP.Client (RequestBody (..), defaultManagerSettings, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseStatus)
 import Network.HTTP.Types.Status (status200, status404)
 import Network.Wai (Application)

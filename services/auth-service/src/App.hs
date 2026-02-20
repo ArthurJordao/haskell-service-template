@@ -12,7 +12,7 @@ import Control.Monad.Logger (runStderrLoggingT)
 import qualified Data.Map.Strict as Map
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
 import Kafka.Producer (KafkaProducer)
-import Models.User (migrateAll)
+import DB.User (migrateAll)
 import Network.Wai.Handler.Warp (run)
 import qualified Ports.Consumer as KafkaPort
 import qualified Ports.Server as Server

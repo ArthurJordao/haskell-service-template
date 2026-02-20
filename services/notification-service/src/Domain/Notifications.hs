@@ -12,13 +12,12 @@ module Domain.Notifications
   )
 where
 
-import Data.Aeson (FromJSON(..), ToJSON(..), object, withObject, (.=), (.:))
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Database.Persist (insert_)
-import Models.SentNotification (SentNotification (..))
+import DB.SentNotification (SentNotification (..))
 import RIO
 import Service.CorrelationId (HasLogContext (..), logErrorC, logInfoC)
 import Service.Database (HasDB (..), runSqlPoolWithCid)
@@ -26,6 +25,7 @@ import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import Text.Mustache (Template, checkedSubstituteValue)
 import Text.Mustache.Types (mFromJSON)
+import Types.In.Notifications
 
 -- | Constraint alias for domain functions.
 type Domain env = (HasLogFunc env, HasLogContext env, HasTemplateCache env, HasNotificationDir env, HasDB env)
@@ -39,43 +39,6 @@ class HasNotificationDir env where
   notificationDirL :: Lens' env FilePath
 
 -- ============================================================================
--- Domain types
--- ============================================================================
-
--- | Supported notification delivery channels.
-data NotificationChannel
-  = Email !Text
-  deriving stock (Show, Eq, Generic)
-
-instance ToJSON NotificationChannel where
-  toJSON (Email addr) = object ["channelType" .= ("email" :: Text), "channelAddress" .= addr]
-
-instance FromJSON NotificationChannel where
-  parseJSON = withObject "NotificationChannel" $ \o -> do
-    t <- o .: "channelType"
-    addr <- o .: "channelAddress"
-    case (t :: Text) of
-      "email" -> pure (Email addr)
-      other -> fail $ "Unknown channelType: " <> T.unpack other
-
--- | A single template variable expressed as a named record.
-data NotificationVariable = NotificationVariable
-  { propertyName :: !Text,
-    propertyValue :: !Text
-  }
-  deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
-
--- | Kafka message payload for dispatching a notification.
-data NotificationMessage = NotificationMessage
-  { notifTemplateName :: !Text,
-    notifVariables :: ![NotificationVariable],
-    notifChannel :: !NotificationChannel
-  }
-  deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
-
--- ============================================================================
 -- Domain logic
 -- ============================================================================
 
@@ -87,19 +50,19 @@ data NotificationMessage = NotificationMessage
 --   * One or more required template variables are missing from the message.
 processNotification :: Domain env => NotificationMessage -> RIO env ()
 processNotification msg = do
-  let recipient = case notifChannel msg of Email addr -> addr
+  let recipient = case channel msg of Email addr -> addr
   when ("@fail.com" `T.isSuffixOf` recipient) $ do
     let errMsg = "Simulated notification failure for @fail.com address: " <> recipient
     logErrorC $ display errMsg
     throwString (T.unpack errMsg)
   cache <- view templateCacheL
-  case Map.lookup (notifTemplateName msg) cache of
+  case Map.lookup (templateName msg) cache of
     Nothing -> do
-      let errMsg = "Template not found: " <> notifTemplateName msg
+      let errMsg = "Template not found: " <> templateName msg
       logErrorC $ display errMsg
       throwString (T.unpack errMsg)
     Just tmpl -> do
-      let vars = Map.fromList [(propertyName v, propertyValue v) | v <- notifVariables msg]
+      let vars = Map.fromList [(propertyName v, propertyValue v) | v <- variables msg]
           context = mFromJSON vars
           (errors, rendered) = checkedSubstituteValue tmpl context
       unless (null errors) $ do
@@ -107,8 +70,8 @@ processNotification msg = do
         logErrorC $ display errMsg
         throwString (T.unpack errMsg)
       now <- liftIO getCurrentTime
-      dispatch now (notifChannel msg) (notifTemplateName msg) rendered
-      recordSentNotification now (notifChannel msg) (notifTemplateName msg) rendered
+      dispatch now (channel msg) (templateName msg) rendered
+      recordSentNotification now (channel msg) (templateName msg) rendered
 
 -- ============================================================================
 -- Dispatch
@@ -149,9 +112,9 @@ recordSentNotification ::
   Text ->
   Text ->
   RIO env ()
-recordSentNotification now channel tmplName content = do
+recordSentNotification now ch tmplName content = do
   pool <- view dbL
-  let (chType, recipient) = case channel of Email addr -> ("email", addr)
+  let (chType, recipient) = case ch of Email addr -> ("email", addr)
       record =
         SentNotification
           { sentNotificationTemplateName = tmplName,

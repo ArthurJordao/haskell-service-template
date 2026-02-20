@@ -28,15 +28,18 @@ library
       App
       Auth.JWT
       Auth.Password
+      DB.User
       Domain.Auth
       Lib
-      Models.User
       Ports.Consumer
       Ports.Kafka
       Ports.Produce
       Ports.Repository
       Ports.Server
       Settings
+      Types.In.Auth
+      Types.Out.Auth
+      Types.Out.UserRegistered
   other-modules:
       Paths_auth_service
   autogen-modules:

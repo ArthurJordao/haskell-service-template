@@ -10,7 +10,7 @@ module Ports.Repository
 where
 
 import Database.Persist.Sql (Entity, entityVal, get, getBy, insert, selectList, toSqlKey)
-import Models.Account (Account, AccountId, Unique (UniqueAuthUserId))
+import DB.Account (Account, AccountId, Unique (UniqueAuthUserId))
 import RIO
 import Service.CorrelationId (HasLogContext (..))
 import Service.Database (HasDB (..), runSqlPoolWithCid)

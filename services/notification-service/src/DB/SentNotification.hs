@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-missing-export-lists #-}
 
-module Models.SentNotification where
+module DB.SentNotification where
 
 import Data.Time.Clock (UTCTime)
 import Database.Persist.TH

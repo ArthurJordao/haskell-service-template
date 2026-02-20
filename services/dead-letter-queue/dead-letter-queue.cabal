@@ -22,13 +22,15 @@ source-repository head
 library
   exposed-modules:
       App
+      DB.DeadLetter
       Domain.DeadLetters
       Lib
-      Models.DeadLetter
       Ports.Consumer
       Ports.Repository
       Ports.Server
       Settings
+      Types.In.DLQ
+      Types.Out.DLQ
   other-modules:
       Paths_dead_letter_queue
   autogen-modules:

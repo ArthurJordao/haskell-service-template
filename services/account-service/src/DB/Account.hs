@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveAnyClass #-}
-{-# OPTIONS_GHC -Wno-missing-export-lists #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
@@ -10,28 +9,21 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# OPTIONS_GHC -Wno-missing-export-lists #-}
 
-module Models.User where
+module DB.Account where
 
-import Data.Time (UTCTime)
+import Data.Aeson (FromJSON, ToJSON)
 import Database.Persist.TH
 import RIO
 
 share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
   [persistLowerCase|
-User
+Account
+  name Text
   email Text
-  passwordHash Text
-  UniqueEmail email
-  deriving Show Generic
-
-RefreshToken
-  jti Text
-  userId UserId
-  expiresAt UTCTime
-  revoked Bool default=False
-  createdAt UTCTime
-  UniqueJti jti
-  deriving Show Generic
+  authUserId Int64
+  UniqueAuthUserId authUserId
+  deriving Show Generic ToJSON FromJSON
   |]

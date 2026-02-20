@@ -2,8 +2,6 @@
 
 module Domain.DeadLetters
   ( Domain,
-    ReplayResult (..),
-    DLQStats (..),
     processDeadLetter,
     listDeadLetters,
     getDeadLetterById,
@@ -14,14 +12,14 @@ module Domain.DeadLetters
   )
 where
 
-import Data.Aeson (FromJSON, ToJSON, Value)
 import qualified Data.Aeson as Aeson
+import Data.Aeson (Value)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text.Encoding as TE
-import Data.Time.Clock (UTCTime, getCurrentTime)
+import Data.Time.Clock (getCurrentTime)
 import Database.Persist.Sql (Entity (..), toSqlKey)
 import Kafka.Consumer (TopicName (..))
-import Models.DeadLetter (DeadLetter (..), DeadLetterId)
+import DB.DeadLetter (DeadLetter (..), DeadLetterId)
 import qualified Ports.Repository as Repo
 import qualified RIO.ByteString.Lazy as BL
 import RIO
@@ -30,59 +28,11 @@ import Servant (err404, errBody)
 import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), logErrorC, logInfoC)
 import Service.Database (HasDB (..))
 import Service.Kafka (HasKafkaProducer (..))
+import Types.In.DLQ (IncomingDeadLetter (..))
+import Types.Out.DLQ (DLQStats (..), ReplayResult (..))
 
 -- | Constraint alias for domain functions that need DB access.
 type Domain env = (HasLogFunc env, HasLogContext env, HasDB env)
-
--- ============================================================================
--- Domain types
--- ============================================================================
-
-data ReplayResult = ReplayResult
-  { replayId :: !Int64,
-    replaySuccess :: !Bool,
-    replayError :: !(Maybe Text)
-  }
-  deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
-
-data DLQStats = DLQStats
-  { totalMessages :: !Int,
-    pendingMessages :: !Int,
-    replayedMessages :: !Int,
-    discardedMessages :: !Int,
-    byErrorType :: !(Map Text Int)
-  }
-  deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
-
--- ============================================================================
--- Incoming message type (Kafka payload format)
--- ============================================================================
-
-data IncomingDeadLetter = IncomingDeadLetter
-  { inOriginalTopic :: !Text,
-    inOriginalMessage :: !Value,
-    inOriginalHeaders :: ![(Text, Text)],
-    inErrorType :: !Text,
-    inErrorDetails :: !Text,
-    inCorrelationId :: !Text,
-    inTimestamp :: !UTCTime,
-    inRetryCount :: !Int
-  }
-  deriving stock (Show, Eq, Generic)
-
-instance FromJSON IncomingDeadLetter where
-  parseJSON = Aeson.withObject "IncomingDeadLetter" $ \o ->
-    IncomingDeadLetter
-      <$> o Aeson..: "originalTopic"
-      <*> o Aeson..: "originalMessage"
-      <*> o Aeson..: "originalHeaders"
-      <*> o Aeson..: "errorType"
-      <*> o Aeson..: "errorDetails"
-      <*> o Aeson..: "correlationId"
-      <*> o Aeson..: "timestamp"
-      <*> o Aeson..: "retryCount"
 
 -- ============================================================================
 -- Domain functions
@@ -115,14 +65,14 @@ processDeadLetter jsonValue = do
     Aeson.Success incoming -> do
       let dl =
             DeadLetter
-              { deadLetterOriginalTopic = inOriginalTopic incoming,
-                deadLetterOriginalMessage = valueToText (inOriginalMessage incoming),
-                deadLetterOriginalHeaders = valueToText (Aeson.toJSON $ inOriginalHeaders incoming),
-                deadLetterErrorType = inErrorType incoming,
-                deadLetterErrorDetails = inErrorDetails incoming,
-                deadLetterCorrelationId = inCorrelationId incoming,
-                deadLetterCreatedAt = inTimestamp incoming,
-                deadLetterRetryCount = inRetryCount incoming,
+              { deadLetterOriginalTopic = originalTopic incoming,
+                deadLetterOriginalMessage = valueToText (originalMessage incoming),
+                deadLetterOriginalHeaders = valueToText (Aeson.toJSON $ originalHeaders incoming),
+                deadLetterErrorType = errorType incoming,
+                deadLetterErrorDetails = errorDetails incoming,
+                deadLetterCorrelationId = correlationId incoming,
+                deadLetterCreatedAt = timestamp incoming,
+                deadLetterRetryCount = retryCount incoming,
                 deadLetterStatus = "pending",
                 deadLetterReplayedAt = Nothing,
                 deadLetterReplayedBy = Nothing,
@@ -218,10 +168,10 @@ getStats :: Domain env => RIO env DLQStats
 getStats = do
   logInfoC "Getting DLQ statistics"
   entities <- Repo.findAll
-  let total = length entities
-      pending = length $ filter (\dl -> deadLetterStatus dl == "pending") entities
-      replayed = length $ filter (\dl -> deadLetterStatus dl == "replayed") entities
-      discarded = length $ filter (\dl -> deadLetterStatus dl == "discarded") entities
+  let tot = length entities
+      pend = length $ filter (\dl -> deadLetterStatus dl == "pending") entities
+      repl = length $ filter (\dl -> deadLetterStatus dl == "replayed") entities
+      disc = length $ filter (\dl -> deadLetterStatus dl == "discarded") entities
       errorTypes =
         foldl'
           (\acc dl -> Map.insertWith (+) (deadLetterErrorType dl) 1 acc)
@@ -229,10 +179,10 @@ getStats = do
           entities
   return
     DLQStats
-      { totalMessages = total,
-        pendingMessages = pending,
-        replayedMessages = replayed,
-        discardedMessages = discarded,
+      { total = tot,
+        pending = pend,
+        replayed = repl,
+        discarded = disc,
         byErrorType = errorTypes
       }
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
 import * as dlqApi from '../api/dlq'
-import type { DeadLetterRecord, DLQStats } from '../types'
+import type { DeadLetterRecord, DLQStats } from '../types/in/DLQ'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -114,7 +114,7 @@ export default function DLQPage() {
 
   const toggleAll = () => {
     if (selected.size === records.length) setSelected(new Set())
-    else setSelected(new Set(records.map(r => r.dlrId)))
+    else setSelected(new Set(records.map(r => r.id)))
   }
 
   const toggleExpand = (id: number) => {
@@ -253,42 +253,42 @@ export default function DLQPage() {
               records.map(r => (
                 <>
                   <TableRow
-                    key={r.dlrId}
+                    key={r.id}
                     className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => toggleExpand(r.dlrId)}
+                    onClick={() => toggleExpand(r.id)}
                   >
                     <TableCell onClick={e => e.stopPropagation()}>
                       <input
                         type="checkbox"
-                        checked={selected.has(r.dlrId)}
-                        onChange={() => toggleSelect(r.dlrId)}
+                        checked={selected.has(r.id)}
+                        onChange={() => toggleSelect(r.id)}
                       />
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{r.dlrId}</TableCell>
-                    <TableCell className="max-w-[160px] truncate text-sm">{r.dlrOriginalTopic}</TableCell>
-                    <TableCell className="max-w-[160px] truncate text-sm">{r.dlrErrorType}</TableCell>
+                    <TableCell className="font-mono text-xs">{r.id}</TableCell>
+                    <TableCell className="max-w-[160px] truncate text-sm">{r.originalTopic}</TableCell>
+                    <TableCell className="max-w-[160px] truncate text-sm">{r.errorType}</TableCell>
                     <TableCell>
-                      <Badge variant={statusVariant(r.dlrStatus)}>{r.dlrStatus}</Badge>
+                      <Badge variant={statusVariant(r.status)}>{r.status}</Badge>
                     </TableCell>
-                    <TableCell>{r.dlrRetryCount}</TableCell>
+                    <TableCell>{r.retryCount}</TableCell>
                     <TableCell className="text-xs">
-                      {new Date(r.dlrCreatedAt).toLocaleString()}
+                      {new Date(r.createdAt).toLocaleString()}
                     </TableCell>
                     <TableCell onClick={e => e.stopPropagation()}>
                       <div className="flex gap-2">
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => setConfirmAction({ type: 'replay', ids: [r.dlrId] })}
-                          disabled={r.dlrStatus !== 'pending'}
+                          onClick={() => setConfirmAction({ type: 'replay', ids: [r.id] })}
+                          disabled={r.status !== 'pending'}
                         >
                           Replay
                         </Button>
                         <Button
                           size="sm"
                           variant="destructive"
-                          onClick={() => setConfirmAction({ type: 'discard', ids: [r.dlrId] })}
-                          disabled={r.dlrStatus === 'discarded'}
+                          onClick={() => setConfirmAction({ type: 'discard', ids: [r.id] })}
+                          disabled={r.status === 'discarded'}
                         >
                           Discard
                         </Button>
@@ -296,42 +296,42 @@ export default function DLQPage() {
                     </TableCell>
                   </TableRow>
 
-                  {expandedId === r.dlrId && (
-                    <TableRow key={`${r.dlrId}-detail`} className="bg-muted/30">
+                  {expandedId === r.id && (
+                    <TableRow key={`${r.id}-detail`} className="bg-muted/30">
                       <TableCell colSpan={8} className="p-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                           <div className="space-y-1">
                             <p className="font-medium text-muted-foreground">Correlation ID</p>
-                            <p className="font-mono text-xs break-all">{r.dlrCorrelationId}</p>
+                            <p className="font-mono text-xs break-all">{r.correlationId}</p>
                           </div>
                           <div className="space-y-1">
                             <p className="font-medium text-muted-foreground">Error Details</p>
-                            <p className="text-xs whitespace-pre-wrap break-all">{r.dlrErrorDetails}</p>
+                            <p className="text-xs whitespace-pre-wrap break-all">{r.errorDetails}</p>
                           </div>
                           <div className="space-y-1 md:col-span-2">
                             <p className="font-medium text-muted-foreground">Original Message</p>
                             <pre className="text-xs bg-background rounded p-3 border overflow-x-auto whitespace-pre-wrap break-all">
-                              {prettyJson(r.dlrOriginalMessage)}
+                              {prettyJson(r.originalMessage)}
                             </pre>
                           </div>
-                          {r.dlrOriginalHeaders && (
+                          {r.originalHeaders && (
                             <div className="space-y-1 md:col-span-2">
                               <p className="font-medium text-muted-foreground">Original Headers</p>
                               <pre className="text-xs bg-background rounded p-3 border overflow-x-auto">
-                                {prettyJson(r.dlrOriginalHeaders)}
+                                {prettyJson(r.originalHeaders)}
                               </pre>
                             </div>
                           )}
-                          {r.dlrReplayedAt && (
+                          {r.replayedAt && (
                             <div className="space-y-1">
                               <p className="font-medium text-muted-foreground">Replayed At</p>
-                              <p className="text-xs">{new Date(r.dlrReplayedAt).toLocaleString()}</p>
+                              <p className="text-xs">{new Date(r.replayedAt).toLocaleString()}</p>
                             </div>
                           )}
-                          {r.dlrReplayResult && (
+                          {r.replayResult && (
                             <div className="space-y-1">
                               <p className="font-medium text-muted-foreground">Replay Result</p>
-                              <p className="text-xs">{r.dlrReplayResult}</p>
+                              <p className="text-xs">{r.replayResult}</p>
                             </div>
                           )}
                         </div>

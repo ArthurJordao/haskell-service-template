@@ -39,7 +39,6 @@ library
       Service.Metrics.Database
       Service.Auth
       Service.Cors
-      Service.Events
   other-modules:
       Paths_haskell_service_lib
   autogen-modules:

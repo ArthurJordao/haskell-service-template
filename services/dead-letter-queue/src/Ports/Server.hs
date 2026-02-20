@@ -1,21 +1,16 @@
 module Ports.Server
   ( API,
     Routes (..),
-    DeadLetterResponse (..),
-    ReplayResult (..),
-    DLQStats (..),
-    server,
     HasConfig (..),
+    server,
     module Service.Server,
+    module Types.Out.DLQ,
   )
 where
 
-import Data.Aeson (FromJSON, ToJSON)
-import Data.Time.Clock (UTCTime)
 import Database.Persist.Sql (Entity (..), fromSqlKey)
-import Domain.DeadLetters (DLQStats (..), ReplayResult (..))
 import qualified Domain.DeadLetters as Domain
-import Models.DeadLetter (DeadLetter (..))
+import DB.DeadLetter (DeadLetter (..))
 import RIO
 import Servant
 import Servant.Server.Generic (AsServerT)
@@ -24,28 +19,7 @@ import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfo
 import Service.Database (HasDB (..))
 import Service.Kafka (HasKafkaProducer (..))
 import Service.Server
-
--- ============================================================================
--- API Types
--- ============================================================================
-
-data DeadLetterResponse = DeadLetterResponse
-  { dlrId :: !Int64,
-    dlrOriginalTopic :: !Text,
-    dlrOriginalMessage :: !Text,
-    dlrOriginalHeaders :: !Text,
-    dlrErrorType :: !Text,
-    dlrErrorDetails :: !Text,
-    dlrCorrelationId :: !Text,
-    dlrCreatedAt :: !UTCTime,
-    dlrRetryCount :: !Int,
-    dlrStatus :: !Text,
-    dlrReplayedAt :: !(Maybe UTCTime),
-    dlrReplayedBy :: !(Maybe Text),
-    dlrReplayResult :: !(Maybe Text)
-  }
-  deriving stock (Show, Eq, Generic)
-  deriving anyclass (FromJSON, ToJSON)
+import Types.Out.DLQ
 
 -- ============================================================================
 -- Routes
@@ -183,17 +157,17 @@ entityToResponse (Entity key dl) = toResponse (fromSqlKey key) dl
 toResponse :: Int64 -> DeadLetter -> DeadLetterResponse
 toResponse dlqId dl =
   DeadLetterResponse
-    { dlrId = dlqId,
-      dlrOriginalTopic = deadLetterOriginalTopic dl,
-      dlrOriginalMessage = deadLetterOriginalMessage dl,
-      dlrOriginalHeaders = deadLetterOriginalHeaders dl,
-      dlrErrorType = deadLetterErrorType dl,
-      dlrErrorDetails = deadLetterErrorDetails dl,
-      dlrCorrelationId = deadLetterCorrelationId dl,
-      dlrCreatedAt = deadLetterCreatedAt dl,
-      dlrRetryCount = deadLetterRetryCount dl,
-      dlrStatus = deadLetterStatus dl,
-      dlrReplayedAt = deadLetterReplayedAt dl,
-      dlrReplayedBy = deadLetterReplayedBy dl,
-      dlrReplayResult = deadLetterReplayResult dl
+    { id = dlqId,
+      originalTopic = deadLetterOriginalTopic dl,
+      originalMessage = deadLetterOriginalMessage dl,
+      originalHeaders = deadLetterOriginalHeaders dl,
+      errorType = deadLetterErrorType dl,
+      errorDetails = deadLetterErrorDetails dl,
+      correlationId = deadLetterCorrelationId dl,
+      createdAt = deadLetterCreatedAt dl,
+      retryCount = deadLetterRetryCount dl,
+      status = deadLetterStatus dl,
+      replayedAt = deadLetterReplayedAt dl,
+      replayedBy = deadLetterReplayedBy dl,
+      replayResult = deadLetterReplayResult dl
     }

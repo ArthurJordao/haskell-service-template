@@ -1,5 +1,5 @@
 import { apiFetch } from './client'
-import type { DeadLetterRecord, DLQStats, ReplayResult } from '../types'
+import type { DeadLetterRecord, DLQStats, ReplayResult } from '../types/in/DLQ'
 
 const DLQ_URL = import.meta.env.VITE_DLQ_URL as string
 

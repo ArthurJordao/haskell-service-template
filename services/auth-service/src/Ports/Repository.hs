@@ -11,14 +11,14 @@ module Ports.Repository
 where
 
 import Database.Persist.Sql (Entity, get, getBy, insert, update, (=.))
-import Models.User
+import DB.User
   ( RefreshToken,
     RefreshTokenId,
     Unique (UniqueEmail, UniqueJti),
     User,
     UserId,
   )
-import qualified Models.User as User
+import qualified DB.User as User
 import RIO
 import Service.CorrelationId (HasLogContext (..))
 import Service.Database (HasDB (..), runSqlPoolWithCid)

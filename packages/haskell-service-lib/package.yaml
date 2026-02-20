@@ -91,7 +91,6 @@ library:
     - Service.Metrics.Database
     - Service.Auth
     - Service.Cors
-    - Service.Events
 
 tests:
   haskell-service-lib-test:

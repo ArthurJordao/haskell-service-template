@@ -14,7 +14,7 @@ import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
 import qualified Ports.Server as Server
 import qualified Ports.Consumer as KafkaPort
 import Kafka.Producer (KafkaProducer)
-import Models.DeadLetter (migrateAll)
+import DB.DeadLetter (migrateAll)
 import Network.Wai.Handler.Warp (run)
 import RIO
 import RIO.Text (unpack)
