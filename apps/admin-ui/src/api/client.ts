@@ -1,12 +1,17 @@
 const AUTH_URL = import.meta.env.VITE_AUTH_URL as string
 
-async function tryRefresh(): Promise<boolean> {
+function generateCid(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  return Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
+async function tryRefresh(cid: string): Promise<boolean> {
   const refreshToken = localStorage.getItem('refresh_token')
   if (!refreshToken) return false
   try {
     const res = await fetch(`${AUTH_URL}/auth/refresh`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Correlation-Id': cid },
       body: JSON.stringify({ refreshToken }),
     })
     if (!res.ok) return false
@@ -26,10 +31,13 @@ function clearSession() {
 }
 
 export async function apiFetch<T>(baseUrl: string, path: string, init: RequestInit = {}): Promise<T> {
+  const cid = generateCid()
+
   const makeHeaders = () => {
     const token = localStorage.getItem('access_token')
     return {
       'Content-Type': 'application/json',
+      'X-Correlation-Id': cid,
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init.headers ?? {}),
     }
@@ -38,7 +46,7 @@ export async function apiFetch<T>(baseUrl: string, path: string, init: RequestIn
   let res = await fetch(`${baseUrl}${path}`, { ...init, headers: makeHeaders() })
 
   if (res.status === 401) {
-    const refreshed = await tryRefresh()
+    const refreshed = await tryRefresh(cid)
     if (refreshed) {
       res = await fetch(`${baseUrl}${path}`, { ...init, headers: makeHeaders() })
     }
