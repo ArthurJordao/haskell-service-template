@@ -26,6 +26,7 @@ import Service.CorrelationId
     defaultCorrelationId,
     extractCorrelationId,
     logInfoC,
+    requestLoggingMiddleware,
     unCorrelationId,
   )
 import Service.Cors (corsMiddleware)
@@ -138,7 +139,7 @@ type AppContext = '[ErrorFormatters, App]
 app :: App -> Application
 app baseEnv =
   let origins = map unpack (corsOrigins (appSettings baseEnv))
-   in corsMiddleware origins $ correlationIdMiddleware $ \req ->
+   in corsMiddleware origins $ correlationIdMiddleware $ requestLoggingMiddleware (appLogFunc baseEnv) (\_ -> return Nothing) $ \req ->
         let maybeCid = extractCorrelationId req
             cid = fromMaybe (error "CID middleware should always set CID") maybeCid
             cidText = unCorrelationId cid

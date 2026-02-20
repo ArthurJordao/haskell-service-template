@@ -29,6 +29,7 @@ import Service.CorrelationId
     defaultCorrelationId,
     extractCorrelationId,
     logInfoC,
+    requestLoggingMiddleware,
     unCorrelationId,
   )
 import Service.Database (HasDB (..))
@@ -133,7 +134,7 @@ runApp env = do
 type AppContext = '[ErrorFormatters]
 
 app :: App -> Application
-app baseEnv = correlationIdMiddleware $ \req ->
+app baseEnv = correlationIdMiddleware $ requestLoggingMiddleware (appLogFunc baseEnv) (\_ -> return Nothing) $ \req ->
   let maybeCid = extractCorrelationId req
       cid = fromMaybe (error "CID middleware should always set CID") maybeCid
       cidText = unCorrelationId cid

@@ -19,7 +19,7 @@ where
 import qualified Control.Concurrent as CC
 import Data.Aeson (ToJSON, Value, decode, encode)
 import qualified Data.Aeson as Aeson
-import Data.Time.Clock (UTCTime, getCurrentTime)
+import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text.Encoding as TE
 import Kafka.Consumer
@@ -244,12 +244,13 @@ consumerLoop consumer config = do
         let cidText = unCorrelationId cid
         local (set correlationIdL cid . set logContextL (Map.singleton "cid" cidText)) $ do
           logInfoC
-            $ "Received message from topic: "
+            $ "--> "
             <> displayShow crTopic
-            <> " partition: "
+            <> " (partition="
             <> displayShow crPartition
-            <> " offset: "
+            <> " offset="
             <> displayShow crOffset
+            <> ")"
 
           case Map.lookup crTopic handlerMap of
             Just h -> do
@@ -285,11 +286,14 @@ consumerLoop consumer config = do
                       let highWaterMark = currentOffset + 1
                       consumerRecordOffsetMetrics config topicText partitionId currentOffset highWaterMark
 
+                      let ms = round (diffUTCTime end start * 1000) :: Int
                       case result of
                         Left ex -> do
+                          logErrorC $ "<-- " <> display topicText <> " FAILED (" <> displayShow ms <> "ms): " <> displayShow ex
                           sendToDeadLetter crTopic valueBytes crHeaders "HANDLER_ERROR" (pack $ show ex) cid
                           void $ commitAllOffsets OffsetCommit consumer
-                        Right _ ->
+                        Right _ -> do
+                          logInfoC $ "<-- " <> display topicText <> " OK (" <> displayShow ms <> "ms)"
                           void $ commitAllOffsets OffsetCommit consumer
             Nothing -> do
               logWarnC $ "No handler configured for topic: " <> displayShow crTopic

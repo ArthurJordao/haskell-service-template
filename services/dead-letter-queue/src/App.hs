@@ -19,8 +19,8 @@ import Network.Wai.Handler.Warp (run)
 import RIO
 import RIO.Text (unpack)
 import Servant
-import Service.Auth (JWTAuthConfig, makeJWTAuthConfig)
-import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), correlationIdMiddleware, defaultCorrelationId, extractCorrelationId, logInfoC, unCorrelationId)
+import Service.Auth (JWTAuthConfig, jwtPrincipalExtractor, makeJWTAuthConfig)
+import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), correlationIdMiddleware, defaultCorrelationId, extractCorrelationId, logInfoC, requestLoggingMiddleware, unCorrelationId)
 import Service.Cors (corsMiddleware)
 import Service.Database (HasDB (..))
 import qualified Service.Database as Database
@@ -115,7 +115,7 @@ type AppContext = '[ErrorFormatters, JWTAuthConfig, App]
 app :: App -> Application
 app baseEnv =
   let origins = map unpack (corsOrigins (appSettings baseEnv))
-   in corsMiddleware origins $ correlationIdMiddleware $ \req ->
+   in corsMiddleware origins $ correlationIdMiddleware $ requestLoggingMiddleware (appLogFunc baseEnv) (jwtPrincipalExtractor (appJwtConfig baseEnv)) $ \req ->
         let maybeCid = extractCorrelationId req
             cid = fromMaybe (error "CID middleware should always set CID") maybeCid
             cidText = unCorrelationId cid

@@ -18,7 +18,7 @@ import DB.Account (migrateAll)
 import Network.Wai.Handler.Warp (run)
 import RIO
 import Servant
-import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), correlationIdMiddleware, defaultCorrelationId, extractCorrelationId, logInfoC, unCorrelationId)
+import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), correlationIdMiddleware, defaultCorrelationId, extractCorrelationId, logInfoC, requestLoggingMiddleware, unCorrelationId)
 import Service.Database (HasDB (..))
 import Service.Metrics.Database (recordDatabaseMetricsInternal)
 import qualified Service.Database as Database
@@ -26,7 +26,7 @@ import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
 import Service.HttpClient (HttpClient, HasHttpClient (..))
 import qualified Service.HttpClient as HttpClient
-import Service.Auth (JWTAuthConfig, makeJWTAuthConfig)
+import Service.Auth (JWTAuthConfig, jwtPrincipalExtractor, makeJWTAuthConfig)
 import Service.Metrics (Metrics, HasMetrics (..), initMetrics)
 import Settings (Settings (..), server)
 
@@ -131,7 +131,7 @@ runApp env = do
 type AppContext = '[ErrorFormatters, JWTAuthConfig, App]
 
 app :: App -> Application
-app baseEnv = correlationIdMiddleware $ \req ->
+app baseEnv = correlationIdMiddleware $ requestLoggingMiddleware (appLogFunc baseEnv) (jwtPrincipalExtractor (appJwtConfig baseEnv)) $ \req ->
   let maybeCid = extractCorrelationId req
       cid = fromMaybe (error "CID middleware should always set CID") maybeCid
       cidText = unCorrelationId cid

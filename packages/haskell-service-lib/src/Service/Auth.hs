@@ -8,6 +8,7 @@ module Service.Auth
     JwtAccessClaims (..),
     JWTAuthConfig (..),
     makeJWTAuthConfig,
+    jwtPrincipalExtractor,
     JWTAuth,
     RequireOwner,
     RequireOwnerOrScopes,
@@ -165,6 +166,18 @@ extractBearer req =
     Just (_, v)
       | "Bearer " `BS.isPrefixOf` v -> Just (decodeUtf8Lenient (BS.drop 7 v))
     _ -> Nothing
+
+-- | Extract the JWT subject (user ID) from a request for logging purposes.
+--
+-- Decodes and verifies the Bearer token but does not fail — returns 'Nothing'
+-- for anonymous requests or invalid tokens.  Intended for use with
+-- 'Service.CorrelationId.requestLoggingMiddleware'.
+jwtPrincipalExtractor :: JWTAuthConfig -> Request -> IO (Maybe Text)
+jwtPrincipalExtractor cfg req =
+  case extractBearer req of
+    Nothing -> return Nothing
+    Just token ->
+      fmap (either (const Nothing) (Just . atcSubject)) (jwtAuthValidate cfg token)
 
 -- | Servant combinator: validates Bearer JWT, provides AccessTokenClaims to handler.
 data JWTAuth

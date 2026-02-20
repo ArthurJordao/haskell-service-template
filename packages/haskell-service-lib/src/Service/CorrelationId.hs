@@ -6,6 +6,7 @@ module Service.CorrelationId
     generateCorrelationId,
     appendCorrelationId,
     correlationIdMiddleware,
+    requestLoggingMiddleware,
     extractCorrelationId,
     logInfoC,
     logWarnC,
@@ -15,12 +16,14 @@ module Service.CorrelationId
 where
 
 import Control.Monad (replicateM)
+import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Vault.Lazy as Vault
 import GHC.Stack (HasCallStack, withFrozenCallStack)
-import Network.Wai (Middleware, Request, requestHeaders, vault)
+import Network.HTTP.Types (statusCode)
+import Network.Wai (Middleware, Request, rawPathInfo, requestHeaders, requestMethod, responseStatus, vault)
 import qualified Network.Wai as Wai
 import RIO
 import qualified RIO.ByteString as BS
@@ -107,3 +110,38 @@ correlationIdMiddleware app req respond = do
 
 extractCorrelationId :: Request -> Maybe CorrelationId
 extractCorrelationId req = Vault.lookup correlationIdKey (vault req)
+
+-- | Log the start and end of every HTTP request.
+--
+-- Must be placed AFTER 'correlationIdMiddleware' in the chain so the CID is
+-- already in the vault:
+--
+-- > correlationIdMiddleware $ requestLoggingMiddleware lf getPrincipal $ \req -> ...
+--
+-- The @getPrincipal@ callback returns the authenticated principal (e.g. the
+-- JWT subject) to include on the request log line, or 'Nothing' for anonymous
+-- requests. Use 'Service.Auth.jwtPrincipalExtractor' for JWT-protected
+-- services; pass @(\\_ -> return Nothing)@ for unauthenticated ones.
+--
+-- Produces two log lines per request:
+--
+-- > [cid=abc123 ] --> GET /api/accounts (principal=user-42)
+-- > [cid=abc123 ] <-- 200 (4ms)
+requestLoggingMiddleware :: LogFunc -> (Request -> IO (Maybe Text)) -> Middleware
+requestLoggingMiddleware logFunc getPrincipal inner req respond = do
+  let method = TE.decodeUtf8 (requestMethod req)
+      path = TE.decodeUtf8 (rawPathInfo req)
+      cid = maybe "?" unCorrelationId (extractCorrelationId req)
+      ctx = Map.fromList [("cid", cid)]
+  maybePrincipal <- getPrincipal req
+  let principalSuffix = maybe "" (\p -> " (principal=" <> display p <> ")") maybePrincipal
+  start <- getCurrentTime
+  runRIO logFunc $
+    logInfo $ formatContext ctx <> "--> " <> display method <> " " <> display path <> principalSuffix
+  inner req $ \response -> do
+    end <- getCurrentTime
+    let status = statusCode (responseStatus response)
+        ms = round (diffUTCTime end start * 1000) :: Int
+    runRIO logFunc $
+      logInfo $ formatContext ctx <> "<-- " <> displayShow status <> " (" <> displayShow ms <> "ms)"
+    respond response
