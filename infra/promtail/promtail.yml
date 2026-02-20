@@ -11,17 +11,26 @@ clients:
 scrape_configs:
   - job_name: haskell-services
     static_configs:
-      - targets:
-          - localhost
+      - targets: [localhost]
         labels:
           job: haskell-services
-          __path__: /logs/*.log
-
-    # Extract service name from filename: /logs/auth-service.log → service=auth-service
-    relabel_configs:
-      - source_labels: [__path__]
-        regex: /logs/(.+)\.log
-        target_label: service
+          service: account-service
+          __path__: /logs/account-service.log
+      - targets: [localhost]
+        labels:
+          job: haskell-services
+          service: auth-service
+          __path__: /logs/auth-service.log
+      - targets: [localhost]
+        labels:
+          job: haskell-services
+          service: dead-letter-queue
+          __path__: /logs/dead-letter-queue.log
+      - targets: [localhost]
+        labels:
+          job: haskell-services
+          service: notification-service
+          __path__: /logs/notification-service.log
 
     pipeline_stages:
       # Promote the correlation-id embedded in log lines as a queryable label.
