@@ -19,8 +19,9 @@ import Network.Wai.Handler.Warp (run)
 import qualified Ports.Consumer as KafkaPort
 import qualified Ports.Server as Server
 import RIO
-import RIO.Text (pack)
+import RIO.Text (pack, unpack)
 import Servant (Context (..), ErrorFormatters, hoistServerWithContext, serveWithContext)
+import Service.Auth (JWTAuthConfig, jwtPrincipalExtractor, makeJWTAuthConfig)
 import Service.CorrelationId
   ( CorrelationId (..),
     HasCorrelationId (..),
@@ -32,9 +33,12 @@ import Service.CorrelationId
     requestLoggingMiddleware,
     unCorrelationId,
   )
-import Service.Database (HasDB (..))
+import Service.Cors (corsMiddleware)
+import Service.Database (HasDB (..)
+  )
 import qualified Service.Database as Database
-import Service.Kafka (HasKafkaProducer (..))
+import Service.Kafka (HasKafkaProducer (..)
+  )
 import qualified Service.Kafka as Kafka
 import Settings (Settings (..), server)
 import qualified System.Directory as Dir
@@ -49,7 +53,8 @@ data App = App
     kafkaProducer :: !KafkaProducer,
     appTemplates :: !(Map Text Template),
     appDb :: !ConnectionPool,
-    appNotificationsDir :: !FilePath
+    appNotificationsDir :: !FilePath,
+    appJwtConfig :: !JWTAuthConfig
   }
 
 instance HasLogFunc App where
@@ -102,6 +107,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
+      jwtCfg = makeJWTAuthConfig (jwtPublicKey settings) "user-"
 
   return
     App
@@ -112,7 +118,8 @@ initializeApp settings logFunc = runRIO logFunc $ do
         kafkaProducer = producer,
         appTemplates = templates,
         appDb = pool,
-        appNotificationsDir = notificationsDir settings
+        appNotificationsDir = notificationsDir settings,
+        appJwtConfig = jwtCfg
       }
 
 runApp :: App -> IO ()
@@ -131,21 +138,28 @@ runApp env = do
       logInfoC $ "Starting HTTP server on port " <> displayShow (Server.httpPort serverSettings)
       liftIO $ run (Server.httpPort serverSettings) (app appEnv)
 
-type AppContext = '[ErrorFormatters]
+type AppContext = '[ErrorFormatters, JWTAuthConfig, App]
 
 app :: App -> Application
-app baseEnv = correlationIdMiddleware $ requestLoggingMiddleware (appLogFunc baseEnv) (\_ -> return Nothing) $ \req ->
-  let maybeCid = extractCorrelationId req
-      cid = fromMaybe (error "CID middleware should always set CID") maybeCid
-      cidText = unCorrelationId cid
-      env =
-        baseEnv
-          & correlationIdL .~ cid
-          & logContextL .~ Map.singleton "cid" cidText
-   in serveWithContext api (Server.jsonErrorFormatters :. EmptyContext) (hoistServerWithContext api (Proxy :: Proxy AppContext) (runRIO env) Server.server) req
+app baseEnv =
+  let origins = map unpack (corsOrigins (appSettings baseEnv))
+   in corsMiddleware origins $ correlationIdMiddleware $ requestLoggingMiddleware (appLogFunc baseEnv) (jwtPrincipalExtractor (appJwtConfig baseEnv)) $ \req ->
+        let maybeCid = extractCorrelationId req
+            cid = fromMaybe (error "CID middleware should always set CID") maybeCid
+            cidText = unCorrelationId cid
+            env =
+              baseEnv
+                & correlationIdL
+                .~ cid
+                  & logContextL
+                .~ Map.singleton "cid" cidText
+         in serveWithContext api (appContext env) (hoistServerWithContext api (Proxy :: Proxy AppContext) (runRIO env) Server.server) req
   where
     api :: Proxy Server.API
     api = Proxy
+
+    appContext :: App -> Context AppContext
+    appContext e = Server.jsonErrorFormatters :. appJwtConfig e :. e :. EmptyContext
 
 -- | Load all .mustache files from the given directory into a cache.
 loadTemplates :: FilePath -> IO (Map Text Template)

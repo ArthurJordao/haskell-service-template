@@ -4,6 +4,7 @@ import { AuthProvider, ProtectedRoute } from './contexts/AuthContext'
 import AdminLayout from './layouts/AdminLayout'
 import LoginPage from './pages/LoginPage'
 import DLQPage from './pages/DLQPage'
+import NotificationsPage from './pages/NotificationsPage'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
           >
             <Route index element={<Navigate to="dlq" replace />} />
             <Route path="dlq" element={<DLQPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/admin/dlq" replace />} />
         </Routes>

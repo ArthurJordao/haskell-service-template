@@ -3,6 +3,8 @@
 
 import Control.Monad.Except (ExceptT (..))
 import Control.Monad.Logger (runStderrLoggingT)
+import Crypto.JOSE.JWK (JWK)
+import qualified Data.Aeson as Aeson
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Database.Persist (Entity (..), selectList)
@@ -30,7 +32,9 @@ import qualified Ports.Consumer as KafkaPort
 import Ports.Server (API, HasConfig (..))
 import qualified Ports.Server as Server
 import RIO hiding (Handler)
-import Servant.Server (Handler (..), ServerError, hoistServer, serve)
+import Servant (Context (..), ErrorFormatters, Proxy (..))
+import Servant.Server (Handler (..), ServerError, hoistServerWithContext, serveWithContext)
+import Service.Auth (JWTAuthConfig, makeJWTAuthConfig)
 import Service.CorrelationId
   ( CorrelationId (..),
     HasCorrelationId (..),
@@ -40,6 +44,7 @@ import Service.CorrelationId
 import Service.Database (HasDB (..), runSqlPoolWithCid)
 import qualified Service.Database as Database
 import Service.Kafka (HasKafkaProducer (..))
+import Service.Server (jsonErrorFormatters)
 import Settings (Settings (..))
 import System.Directory (listDirectory)
 import System.FilePath ((</>))
@@ -57,7 +62,8 @@ data TestApp = TestApp
     testCorrelationId :: !CorrelationId,
     testTemplates :: !(Map Text Template),
     testNotificationsDir :: !FilePath,
-    testDb :: !ConnectionPool
+    testDb :: !ConnectionPool,
+    testJwtConfig :: !JWTAuthConfig
   }
 
 instance HasLogFunc TestApp where
@@ -88,6 +94,19 @@ instance HasKafkaProducer TestApp where
 -- ============================================================================
 -- Fixtures
 -- ============================================================================
+
+-- | A minimal EC P-256 JWK (public key) used for wiring Servant context in tests.
+-- The /status route doesn't validate JWTs, so the actual key content doesn't matter.
+testJWK :: JWK
+testJWK =
+  case Aeson.eitherDecodeStrict' testJWKBytes of
+    Right jwk -> jwk
+    Left err -> error $ "Test JWK parse failed: " <> err
+  where
+    testJWKBytes =
+      "{\"kty\":\"EC\",\"crv\":\"P-256\"\
+      \,\"x\":\"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU\"\
+      \,\"y\":\"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0\"}"
 
 -- | Compile a template at test time; fails loudly on a parse error.
 unsafeCompile :: String -> Text -> Template
@@ -134,13 +153,15 @@ withDomainApp action =
             testCorrelationId = defaultCorrelationId,
             testTemplates = testTemplateCache,
             testNotificationsDir = tmpDir,
-            testDb = pool
+            testDb = pool,
+            testJwtConfig = makeJWTAuthConfig testJWK "user-"
           }
 
 withTestApp :: (Int -> TestApp -> IO ()) -> IO ()
 withTestApp action =
   withSystemTempDirectory "notif-test" $ \tmpDir -> do
     pool <- makeTestPool
+    let jwtCfg = makeJWTAuthConfig testJWK "user-"
     let testSettings =
           Settings
             { server = Server.Settings {Server.httpPort = 0, Server.httpEnvironment = "test"},
@@ -159,7 +180,9 @@ withTestApp action =
                     Database.dbAutoMigrate = False
                   },
               templatesDir = "resources/templates",
-              notificationsDir = tmpDir
+              notificationsDir = tmpDir,
+              jwtPublicKey = testJWK,
+              corsOrigins = []
             }
     logOptions <- logOptionsHandle stderr False
     withLogFunc logOptions $ \logFunc -> do
@@ -171,15 +194,19 @@ withTestApp action =
                 testCorrelationId = defaultCorrelationId,
                 testTemplates = testTemplateCache,
                 testNotificationsDir = tmpDir,
-                testDb = pool
+                testDb = pool,
+                testJwtConfig = jwtCfg
               }
       testWithApplication (pure $ appToWai testApp) $ \port -> action port testApp
 
+type TestAppContext = '[ErrorFormatters, JWTAuthConfig, TestApp]
+
 appToWai :: TestApp -> Application
 appToWai env =
-  serve (Proxy @API) $
-    hoistServer (Proxy @API) toHandler Server.server
+  serveWithContext (Proxy @API) ctx $
+    hoistServerWithContext (Proxy @API) (Proxy @TestAppContext) toHandler Server.server
   where
+    ctx = jsonErrorFormatters :. testJwtConfig env :. env :. EmptyContext
     toHandler :: forall a. RIO TestApp a -> Handler a
     toHandler action =
       Handler $ ExceptT $

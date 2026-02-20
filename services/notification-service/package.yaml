@@ -35,6 +35,7 @@ dependencies:
 - persistent-postgresql
 - monad-logger
 - time
+- jose
 
 ghc-options:
 - -Wall
