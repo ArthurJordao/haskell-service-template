@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import { toast } from 'sonner'
 import * as dlqApi from '../api/dlq'
 import type { DeadLetterRecord, DLQStats } from '../types/in/DLQ'
@@ -251,7 +251,7 @@ export default function DLQPage() {
               </TableRow>
             ) : (
               records.map(r => (
-                <>
+                <Fragment key={r.id}>
                   <TableRow
                     key={r.id}
                     className="cursor-pointer hover:bg-muted/50"
@@ -338,7 +338,7 @@ export default function DLQPage() {
                       </TableCell>
                     </TableRow>
                   )}
-                </>
+                </Fragment>
               ))
             )}
           </TableBody>

@@ -104,8 +104,9 @@ refreshAccessToken jwt refreshToken = do
         Nothing -> throwM err500 {errBody = "User not found"}
         Just user -> do
           now <- liftIO getCurrentTime
+          let issueAt = if User.userEmail user `elem` jwtAdminEmails jwt then issueAdminAccessToken else issueAccessToken
           at <-
-            liftIO (issueAccessToken jwt (fromSqlKey userId) (User.userEmail user) now) >>= \case
+            liftIO (issueAt jwt (fromSqlKey userId) (User.userEmail user) now) >>= \case
               Left err -> throwM err500 {errBody = fromString (unpack err)}
               Right t -> return t
           return (at, jwtAccessTokenExpirySeconds jwt)
