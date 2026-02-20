@@ -51,6 +51,7 @@ dependencies:
 - resource-pool
 - haskell-service-lib
 - jose
+- time
 
 ghc-options:
 - -Wall

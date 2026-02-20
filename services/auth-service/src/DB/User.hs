@@ -13,13 +13,14 @@
 
 module DB.User where
 
-import Data.Time (UTCTime)
+import Data.Time (UTCTime (..))
 import Database.Persist.TH
 import RIO
+import Service.Persist (deriveEntityMeta, persistWithMeta)
 
 share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
-  [persistLowerCase|
+  [persistWithMeta|
 User
   email Text
   passwordHash Text
@@ -31,7 +32,9 @@ RefreshToken
   userId UserId
   expiresAt UTCTime
   revoked Bool default=False
-  createdAt UTCTime
   UniqueJti jti
   deriving Show Generic
   |]
+
+$(deriveEntityMeta ''User)
+$(deriveEntityMeta ''RefreshToken)

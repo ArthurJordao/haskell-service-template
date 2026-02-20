@@ -14,12 +14,14 @@
 module DB.Account where
 
 import Data.Aeson (FromJSON, ToJSON)
+import Data.Time (UTCTime (..))
 import Database.Persist.TH
 import RIO
+import Service.Persist (deriveEntityMeta, persistWithMeta)
 
 share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
-  [persistLowerCase|
+  [persistWithMeta|
 Account
   name Text
   email Text
@@ -27,3 +29,5 @@ Account
   UniqueAuthUserId authUserId
   deriving Show Generic ToJSON FromJSON
   |]
+
+$(deriveEntityMeta ''Account)

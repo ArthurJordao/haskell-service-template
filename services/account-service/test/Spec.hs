@@ -280,7 +280,7 @@ baseUrl port = "http://localhost:" <> show port
 setupAccount :: TestApp -> Int64 -> Text -> IO ()
 setupAccount testApp uid email = runRIO testApp $ do
   let mockKafka = testAppMockKafka testApp
-      event = UserRegisteredEvent {ureUserId = uid, ureEmail = email}
+      event = UserRegisteredEvent {userId = uid, email = email}
       consumerCfg = KafkaPort.consumerConfig (Settings.kafka (testAppSettings testApp))
   mockProduceMessage (MockProducer mockKafka) (TopicName "user-registered") Nothing event
   processAllMessages (MockConsumer mockKafka) consumerCfg

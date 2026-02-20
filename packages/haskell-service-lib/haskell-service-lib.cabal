@@ -39,6 +39,8 @@ library
       Service.Metrics.Database
       Service.Auth
       Service.Cors
+      Service.Metadata
+      Service.Persist
   other-modules:
       Paths_haskell_service_lib
   autogen-modules:
@@ -88,6 +90,7 @@ library
     , servant
     , servant-server
     , stm
+    , template-haskell
     , text
     , time
     , uuid
@@ -151,6 +154,7 @@ test-suite haskell-service-lib-test
     , servant
     , servant-server
     , stm
+    , template-haskell
     , text
     , time
     , uuid

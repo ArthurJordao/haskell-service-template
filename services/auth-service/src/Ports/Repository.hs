@@ -10,7 +10,7 @@ module Ports.Repository
   )
 where
 
-import Database.Persist.Sql (Entity, get, getBy, insert, update, (=.))
+import Database.Persist.Sql (Entity, get, getBy, update, (=.))
 import DB.User
   ( RefreshToken,
     RefreshTokenId,
@@ -20,10 +20,10 @@ import DB.User
   )
 import qualified DB.User as User
 import RIO
-import Service.CorrelationId (HasLogContext (..))
-import Service.Database (HasDB (..), runSqlPoolWithCid)
+import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..))
+import Service.Database (HasDB (..), insertWithMeta, insertWithMeta_, runSqlPoolWithCid)
 
-type Repo env = (HasLogFunc env, HasLogContext env, HasDB env)
+type Repo env = (HasLogFunc env, HasLogContext env, HasDB env, HasCorrelationId env)
 
 findUserByEmail :: Repo env => Text -> RIO env (Maybe (Entity User))
 findUserByEmail email = do
@@ -31,9 +31,7 @@ findUserByEmail email = do
   runSqlPoolWithCid (getBy (UniqueEmail email)) pool
 
 createUser :: Repo env => User -> RIO env UserId
-createUser user = do
-  pool <- view dbL
-  runSqlPoolWithCid (insert user) pool
+createUser = insertWithMeta
 
 findUserById :: Repo env => UserId -> RIO env (Maybe User)
 findUserById uid = do
@@ -46,10 +44,7 @@ findRefreshTokenByJti jti = do
   runSqlPoolWithCid (getBy (UniqueJti jti)) pool
 
 storeRefreshToken :: Repo env => RefreshToken -> RIO env ()
-storeRefreshToken token = do
-  pool <- view dbL
-  _ <- runSqlPoolWithCid (insert token) pool
-  return ()
+storeRefreshToken = insertWithMeta_
 
 revokeRefreshToken :: Repo env => RefreshTokenId -> RIO env ()
 revokeRefreshToken tokenId = do

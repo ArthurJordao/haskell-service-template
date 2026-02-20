@@ -9,15 +9,15 @@ module Domain.Accounts
 where
 
 import Database.Persist.Sql (entityVal)
-import DB.Account (Account (..))
+import DB.Account (Account (..), mkAccount)
 import qualified Ports.Repository as Repo
 import RIO
 import Servant (err404, errBody)
-import Service.CorrelationId (HasLogContext (..), logInfoC)
+import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
 
 -- | Constraint alias for domain functions that need DB access.
-type Domain env = (HasLogFunc env, HasLogContext env, HasDB env)
+type Domain env = (HasLogFunc env, HasLogContext env, HasDB env, HasCorrelationId env)
 
 -- | List all accounts.
 listAccounts :: Domain env => RIO env [Account]
@@ -43,5 +43,5 @@ processUserRegistered uid email = do
   case existing of
     Just _ -> logInfoC $ "Account already exists for user " <> displayShow uid
     Nothing -> do
-      void $ Repo.createAccount Account {accountName = email, accountEmail = email, accountAuthUserId = uid}
+      void $ Repo.createAccount (mkAccount email email uid)
       logInfoC $ "Created account for user " <> displayShow uid

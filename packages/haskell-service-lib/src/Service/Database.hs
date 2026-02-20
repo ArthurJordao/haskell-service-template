@@ -1,6 +1,8 @@
 module Service.Database
   ( HasDB (..),
     runSqlPoolWithCid,
+    insertWithMeta,
+    insertWithMeta_,
     Settings (..),
     DatabaseType (..),
     decoder,
@@ -8,11 +10,15 @@ module Service.Database
   )
 where
 
+{-# LANGUAGE TypeFamilies #-}
+
 import Control.Monad.Logger (LoggingT (..), runLoggingT, runStderrLoggingT)
 import qualified Data.Map.Strict as Map
 import Data.Pool (withResource)
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.Encoding.Error as TE
+import Database.Persist (Key, insert, insert_)
+import Database.Persist.Class (PersistEntity, PersistEntityBackend, SafeToInsert)
 import Database.Persist.Postgresql (createPostgresqlPool)
 import Database.Persist.Sql (ConnectionPool, SqlBackend)
 import Database.Persist.SqlBackend.Internal (connLogFunc)
@@ -20,7 +26,8 @@ import Database.Persist.Sqlite (createSqlitePool)
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import RIO
 import RIO.Text (pack, toLower)
-import Service.CorrelationId (HasLogContext (..))
+import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..))
+import Service.Metadata (HasMeta (..), getMetadata)
 import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 import System.Log.FastLogger (fromLogStr)
 
@@ -108,3 +115,39 @@ runSqlPoolWithCid action pool = do
   case result of
     Left err -> throwIO err
     Right val -> return val
+
+-- | Apply current-request metadata and insert an entity, returning its key.
+insertWithMeta ::
+  ( HasMeta a,
+    PersistEntity a,
+    SafeToInsert a,
+    PersistEntityBackend a ~ SqlBackend,
+    HasDB env,
+    HasCorrelationId env,
+    HasLogFunc env,
+    HasLogContext env
+  ) =>
+  a ->
+  RIO env (Key a)
+insertWithMeta entity = do
+  meta <- getMetadata
+  pool <- view dbL
+  runSqlPoolWithCid (insert (applyMeta meta entity)) pool
+
+-- | Like 'insertWithMeta' but discards the generated key.
+insertWithMeta_ ::
+  ( HasMeta a,
+    PersistEntity a,
+    SafeToInsert a,
+    PersistEntityBackend a ~ SqlBackend,
+    HasDB env,
+    HasCorrelationId env,
+    HasLogFunc env,
+    HasLogContext env
+  ) =>
+  a ->
+  RIO env ()
+insertWithMeta_ entity = do
+  meta <- getMetadata
+  pool <- view dbL
+  runSqlPoolWithCid (insert_ (applyMeta meta entity)) pool

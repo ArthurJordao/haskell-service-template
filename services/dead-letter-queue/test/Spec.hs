@@ -1,5 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
+import Crypto.JOSE.JWA.JWK (OKPCrv (..), KeyMaterialGenParam (..))
+import Crypto.JOSE.JWK (genJWK)
 import Ports.Server (API, DeadLetterResponse (..), ReplayResult (..), DLQStats (..))
 import Control.Monad.Logger (runStderrLoggingT)
 import Data.Aeson (decode, encode, Value)
@@ -11,7 +13,7 @@ import qualified Ports.Server as Server
 import qualified Ports.Consumer as KafkaPort
 import Kafka.Consumer (TopicName (..))
 import DB.DeadLetter (DeadLetter (..), migrateAll)
-import Network.HTTP.Client (RequestBody (..), defaultManagerSettings, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseStatus)
+import Network.HTTP.Client (Request, RequestBody (..), defaultManagerSettings, httpLbs, method, newManager, parseRequest, requestBody, requestHeaders, responseBody, responseStatus)
 import Network.HTTP.Types.Status (status200, status404)
 import Network.Wai (Application)
 import Network.Wai.Handler.Warp (testWithApplication)
@@ -19,8 +21,11 @@ import RIO
 import RIO.Text (pack)
 import qualified RIO.Seq as Seq
 import Control.Monad.Trans.Except (ExceptT (..))
-import Servant (ServerError, hoistServer, serve)
+import qualified Data.Text as T
+import Servant (ServerError)
 import qualified Servant
+import Servant.Server (Context (..), hoistServerWithContext, serveWithContext)
+import Service.Auth (AccessTokenClaims (..), JWTAuthConfig (..))
 import Service.CorrelationId (HasLogContext (..))
 import Service.Database (HasDB (..))
 import qualified Service.Database as Database
@@ -64,11 +69,14 @@ instance {-# OVERLAPPING #-} HasKafkaProducer TestApp where
 
 withTestApp :: (Int -> TestApp -> IO ()) -> IO ()
 withTestApp action = do
+  jwk <- liftIO $ genJWK (OKPGenParam Ed25519)
   let testSettings =
         Settings
           { server = Server.Settings {Server.httpPort = 8090, Server.httpEnvironment = "test"},
             kafka = KafkaPort.Settings {KafkaPort.kafkaBroker = "localhost:9092", KafkaPort.kafkaGroupId = "dlq-test-group", KafkaPort.kafkaDeadLetterTopic = "DEADLETTER", KafkaPort.kafkaMaxRetries = 3},
-            database = Database.Settings {Database.dbType = Database.SQLite, Database.dbConnectionString = ":memory:", Database.dbPoolSize = 1, Database.dbAutoMigrate = True}
+            database = Database.Settings {Database.dbType = Database.SQLite, Database.dbConnectionString = ":memory:", Database.dbPoolSize = 1, Database.dbAutoMigrate = True},
+            jwtPublicKey = jwk,
+            corsOrigins = []
           }
   logOptions <- logOptionsHandle stderr True
   withLogFunc logOptions $ \logFunc -> runRIO logFunc $ do
@@ -88,11 +96,40 @@ withTestApp action = do
 
     liftIO $ testWithApplication (pure $ testAppToWai testApp) $ \port' -> action port' testApp
 
+-- | A mock JWTAuthConfig that accepts "token-admin" as an admin bearer token.
+mockJwtConfig :: JWTAuthConfig
+mockJwtConfig =
+  JWTAuthConfig
+    { jwtAuthValidate = \token ->
+        if "token-admin" `T.isPrefixOf` token
+          then return $
+            Right
+              AccessTokenClaims
+                { atcSubject = "user-test",
+                  atcEmail = Just "test@example.com",
+                  atcJti = "jti-test",
+                  atcScopes = ["admin"]
+                }
+          else return (Left "invalid token"),
+      jwtAuthSubjectPrefix = "user-"
+    }
+
+type TestAppContext = '[JWTAuthConfig]
+
 testAppToWai :: TestApp -> Application
-testAppToWai env = serve (Proxy @Server.API) (hoistServer (Proxy @Server.API) (nt env) Server.server)
+testAppToWai env =
+  serveWithContext (Proxy @Server.API) (mockJwtConfig :. EmptyContext) $
+    hoistServerWithContext
+      (Proxy @Server.API)
+      (Proxy @TestAppContext)
+      toHandler
+      Server.server
   where
-    nt :: TestApp -> RIO TestApp a -> Servant.Handler a
-    nt e action = Servant.Handler $ ExceptT $ try $ runRIO e action
+    toHandler :: forall a. RIO TestApp a -> Servant.Handler a
+    toHandler action =
+      Servant.Handler $ ExceptT $
+        (Right <$> runRIO env action)
+          `catch` (\(e :: ServerError) -> return (Left e))
 
 -- Helper to seed a dead letter message directly into the database
 seedDeadLetter :: TestApp -> IO ()
@@ -118,6 +155,10 @@ seedDeadLetter testApp = do
   where
     runSqlPoolWithCid = Database.runSqlPoolWithCid
 
+-- | Add an admin bearer token to an outgoing request.
+addAdminAuth :: Request -> Request
+addAdminAuth req = req { requestHeaders = ("Authorization", "Bearer token-admin") : requestHeaders req }
+
 spec :: Spec
 spec = describe "Dead Letter Queue Service" $ do
   it "responds with 200 on status" $ do
@@ -131,7 +172,7 @@ spec = describe "Dead Letter Queue Service" $ do
   it "returns empty list when no dead letters exist" $ do
     withTestApp $ \port' _ -> do
       manager <- newManager defaultManagerSettings
-      request <- parseRequest ("http://localhost:" <> show port' <> "/dlq")
+      request <- addAdminAuth <$> parseRequest ("http://localhost:" <> show port' <> "/dlq")
       response <- httpLbs request manager
       responseStatus response `shouldBe` status200
       responseBody response `shouldBe` "[]"
@@ -139,7 +180,7 @@ spec = describe "Dead Letter Queue Service" $ do
   it "returns 404 for non-existent dead letter" $ do
     withTestApp $ \port' _ -> do
       manager <- newManager defaultManagerSettings
-      request <- parseRequest ("http://localhost:" <> show port' <> "/dlq/999")
+      request <- addAdminAuth <$> parseRequest ("http://localhost:" <> show port' <> "/dlq/999")
       response <- httpLbs request manager
       responseStatus response `shouldBe` status404
 
@@ -148,7 +189,7 @@ spec = describe "Dead Letter Queue Service" $ do
       seedDeadLetter testApp
 
       manager <- newManager defaultManagerSettings
-      request <- parseRequest ("http://localhost:" <> show port' <> "/dlq")
+      request <- addAdminAuth <$> parseRequest ("http://localhost:" <> show port' <> "/dlq")
       response <- httpLbs request manager
       responseStatus response `shouldBe` status200
 
@@ -157,9 +198,9 @@ spec = describe "Dead Letter Queue Service" $ do
 
       case maybeMessages of
         Just [msg] -> do
-          dlrOriginalTopic msg `shouldBe` "test-topic"
-          dlrErrorType msg `shouldBe` "HANDLER_ERROR"
-          dlrStatus msg `shouldBe` "pending"
+          originalTopic msg `shouldBe` "test-topic"
+          errorType msg `shouldBe` "HANDLER_ERROR"
+          status msg `shouldBe` "pending"
         Just msgs -> expectationFailure $ "Expected 1 message, got " <> show (length msgs)
         Nothing -> expectationFailure "Failed to decode response"
 
@@ -168,7 +209,7 @@ spec = describe "Dead Letter Queue Service" $ do
       seedDeadLetter testApp
 
       manager <- newManager defaultManagerSettings
-      request <- parseRequest ("http://localhost:" <> show port' <> "/dlq/1")
+      request <- addAdminAuth <$> parseRequest ("http://localhost:" <> show port' <> "/dlq/1")
       response <- httpLbs request manager
       responseStatus response `shouldBe` status200
 
@@ -177,8 +218,8 @@ spec = describe "Dead Letter Queue Service" $ do
 
       case maybeDl of
         Just dl -> do
-          dlrId dl `shouldBe` 1
-          dlrCorrelationId dl `shouldBe` "test-cid-123"
+          dl.id `shouldBe` 1
+          correlationId dl `shouldBe` "test-cid-123"
         Nothing -> expectationFailure "Failed to decode response"
 
   it "replays a dead letter message and produces to Kafka" $ do
@@ -187,7 +228,7 @@ spec = describe "Dead Letter Queue Service" $ do
 
       manager <- newManager defaultManagerSettings
       initialRequest <- parseRequest ("http://localhost:" <> show port' <> "/dlq/1/replay")
-      let request = initialRequest {method = "POST"}
+      let request = addAdminAuth initialRequest {method = "POST"}
       response <- httpLbs request manager
       responseStatus response `shouldBe` status200
 
@@ -196,9 +237,9 @@ spec = describe "Dead Letter Queue Service" $ do
 
       case maybeResult of
         Just result -> do
-          replayId result `shouldBe` 1
-          replaySuccess result `shouldBe` True
-          replayError result `shouldBe` Nothing
+          result.id `shouldBe` 1
+          success result `shouldBe` True
+          message result `shouldBe` Nothing
         Nothing -> expectationFailure "Failed to decode replay result"
 
       -- Verify Kafka message was produced
@@ -216,16 +257,16 @@ spec = describe "Dead Letter Queue Service" $ do
 
       manager <- newManager defaultManagerSettings
       initialRequest <- parseRequest ("http://localhost:" <> show port' <> "/dlq/1/discard")
-      let request = initialRequest {method = "POST"}
+      let request = addAdminAuth initialRequest {method = "POST"}
       response <- httpLbs request manager
       responseStatus response `shouldBe` status200
 
       -- Verify status changed to discarded
-      getRequest <- parseRequest ("http://localhost:" <> show port' <> "/dlq/1")
+      getRequest <- addAdminAuth <$> parseRequest ("http://localhost:" <> show port' <> "/dlq/1")
       getResponse <- httpLbs getRequest manager
       let maybeDl = decode @DeadLetterResponse (responseBody getResponse)
       case maybeDl of
-        Just dl -> dlrStatus dl `shouldBe` "discarded"
+        Just dl -> status dl `shouldBe` "discarded"
         Nothing -> expectationFailure "Failed to decode response"
 
   it "returns stats" $ do
@@ -233,7 +274,7 @@ spec = describe "Dead Letter Queue Service" $ do
       seedDeadLetter testApp
 
       manager <- newManager defaultManagerSettings
-      request <- parseRequest ("http://localhost:" <> show port' <> "/dlq/stats")
+      request <- addAdminAuth <$> parseRequest ("http://localhost:" <> show port' <> "/dlq/stats")
       response <- httpLbs request manager
       responseStatus response `shouldBe` status200
 
@@ -242,10 +283,10 @@ spec = describe "Dead Letter Queue Service" $ do
 
       case maybeStats of
         Just stats -> do
-          totalMessages stats `shouldBe` 1
-          pendingMessages stats `shouldBe` 1
-          replayedMessages stats `shouldBe` 0
-          discardedMessages stats `shouldBe` 0
+          stats.total `shouldBe` 1
+          stats.pending `shouldBe` 1
+          stats.replayed `shouldBe` 0
+          stats.discarded `shouldBe` 0
         Nothing -> expectationFailure "Failed to decode stats"
 
 main :: IO ()

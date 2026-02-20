@@ -9,7 +9,7 @@ import Domain.Accounts (processUserRegistered)
 import Kafka.Consumer (TopicName (..))
 import Ports.Produce (publishWelcomeNotification)
 import RIO
-import Service.CorrelationId (HasLogContext (..), logInfoC, logWarnC)
+import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC, logWarnC)
 import Service.Database (HasDB (..))
 import Service.Kafka
 import Types.In.UserRegistered (UserRegisteredEvent (..))
@@ -18,7 +18,8 @@ consumerConfig ::
   ( HasLogFunc env,
     HasLogContext env,
     HasDB env,
-    HasKafkaProducer env
+    HasKafkaProducer env,
+    HasCorrelationId env
   ) =>
   Settings ->
   ConsumerConfig env
@@ -50,7 +51,8 @@ userRegisteredHandler ::
   ( HasLogFunc env,
     HasLogContext env,
     HasDB env,
-    HasKafkaProducer env
+    HasKafkaProducer env,
+    HasCorrelationId env
   ) =>
   Value ->
   RIO env ()

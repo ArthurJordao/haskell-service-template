@@ -8,18 +8,20 @@
 
 module DB.SentNotification where
 
-import Data.Time.Clock (UTCTime)
+import Data.Time (UTCTime (..))
 import Database.Persist.TH
 import RIO (Show, Text)
+import Service.Persist (deriveEntityMeta, persistWithMeta)
 
 share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
-  [persistLowerCase|
+  [persistWithMeta|
 SentNotification
   templateName Text
   channelType  Text
   recipient    Text
   content      Text
-  sentAt       UTCTime
   deriving Show
   |]
+
+$(deriveEntityMeta ''SentNotification)

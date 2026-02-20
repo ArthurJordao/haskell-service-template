@@ -14,7 +14,7 @@ import qualified Domain.Auth as Domain
 import RIO
 import Servant
 import Servant.Server.Generic (AsServerT)
-import Service.CorrelationId (HasLogContext (..), logInfoC)
+import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
 import Service.Kafka (HasKafkaProducer (..))
 import Service.Metrics (HasMetrics (..), metricsHandler)
@@ -89,7 +89,8 @@ server ::
     HasConfig env settings,
     HasDB env,
     HasKafkaProducer env,
-    HasMetrics env
+    HasMetrics env,
+    HasCorrelationId env
   ) =>
   Routes (AsServerT (RIO env))
 server =
@@ -118,7 +119,8 @@ registerHandler ::
     HasLogContext env,
     HasConfig env settings,
     HasDB env,
-    HasKafkaProducer env
+    HasKafkaProducer env,
+    HasCorrelationId env
   ) =>
   RegisterRequest ->
   RIO env AuthTokens
@@ -133,7 +135,8 @@ loginHandler ::
   ( HasLogFunc env,
     HasLogContext env,
     HasConfig env settings,
-    HasDB env
+    HasDB env,
+    HasCorrelationId env
   ) =>
   LoginRequest ->
   RIO env AuthTokens
@@ -148,7 +151,8 @@ refreshHandler ::
   ( HasLogFunc env,
     HasLogContext env,
     HasConfig env settings,
-    HasDB env
+    HasDB env,
+    HasCorrelationId env
   ) =>
   RefreshRequest ->
   RIO env AuthTokens
@@ -169,7 +173,8 @@ logoutHandler ::
   ( HasLogFunc env,
     HasLogContext env,
     HasConfig env settings,
-    HasDB env
+    HasDB env,
+    HasCorrelationId env
   ) =>
   LogoutRequest ->
   RIO env NoContent

@@ -16,11 +16,10 @@ import Data.Time.Clock (UTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
-import Database.Persist (insert_)
-import DB.SentNotification (SentNotification (..))
+import DB.SentNotification (mkSentNotification)
 import RIO
-import Service.CorrelationId (HasLogContext (..), logErrorC, logInfoC)
-import Service.Database (HasDB (..), runSqlPoolWithCid)
+import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logErrorC, logInfoC)
+import Service.Database (HasDB (..), insertWithMeta_)
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import Text.Mustache (Template, checkedSubstituteValue)
@@ -28,7 +27,7 @@ import Text.Mustache.Types (mFromJSON)
 import Types.In.Notifications
 
 -- | Constraint alias for domain functions.
-type Domain env = (HasLogFunc env, HasLogContext env, HasTemplateCache env, HasNotificationDir env, HasDB env)
+type Domain env = (HasLogFunc env, HasLogContext env, HasTemplateCache env, HasNotificationDir env, HasDB env, HasCorrelationId env)
 
 -- | Read-only access to the loaded Mustache template cache.
 class HasTemplateCache env where
@@ -71,7 +70,7 @@ processNotification msg = do
         throwString (T.unpack errMsg)
       now <- liftIO getCurrentTime
       dispatch now (channel msg) (templateName msg) rendered
-      recordSentNotification now (channel msg) (templateName msg) rendered
+      recordSentNotification (channel msg) (templateName msg) rendered
 
 -- ============================================================================
 -- Dispatch
@@ -106,21 +105,11 @@ dispatch now (Email recipient) tmplName rendered = do
 
 -- | Insert a record of the sent notification into the database.
 recordSentNotification ::
-  (HasLogFunc env, HasLogContext env, HasDB env) =>
-  UTCTime ->
+  (HasLogFunc env, HasLogContext env, HasDB env, HasCorrelationId env) =>
   NotificationChannel ->
   Text ->
   Text ->
   RIO env ()
-recordSentNotification now ch tmplName content = do
-  pool <- view dbL
+recordSentNotification ch tmplName content = do
   let (chType, recipient) = case ch of Email addr -> ("email", addr)
-      record =
-        SentNotification
-          { sentNotificationTemplateName = tmplName,
-            sentNotificationChannelType = chType,
-            sentNotificationRecipient = recipient,
-            sentNotificationContent = content,
-            sentNotificationSentAt = now
-          }
-  runSqlPoolWithCid (insert_ record) pool
+  insertWithMeta_ (mkSentNotification tmplName chType recipient content)

@@ -197,12 +197,12 @@ spec = do
       withDomainApp $ \testApp -> do
         let msg =
               NotificationMessage
-                { notifTemplateName = "welcome_email",
-                  notifVariables =
+                { templateName = "welcome_email",
+                  variables =
                     [ NotificationVariable "name" "Alice",
                       NotificationVariable "email" "alice@example.com"
                     ],
-                  notifChannel = Email "alice@example.com"
+                  channel = Email "alice@example.com"
                 }
         runRIO testApp (processNotification msg)
 
@@ -232,9 +232,9 @@ spec = do
       withDomainApp $ \testApp -> do
         let msg =
               NotificationMessage
-                { notifTemplateName = "welcome_email",
-                  notifVariables = [NotificationVariable "name" "Alice"], -- missing "email"
-                  notifChannel = Email "alice@example.com"
+                { templateName = "welcome_email",
+                  variables = [NotificationVariable "name" "Alice"], -- missing "email"
+                  channel = Email "alice@example.com"
                 }
         result :: Either SomeException () <- try $ runRIO testApp (processNotification msg)
         result `shouldSatisfy` isLeft
@@ -243,9 +243,9 @@ spec = do
       withDomainApp $ \testApp -> do
         let msg =
               NotificationMessage
-                { notifTemplateName = "nonexistent_template",
-                  notifVariables = [NotificationVariable "name" "Alice"],
-                  notifChannel = Email "alice@example.com"
+                { templateName = "nonexistent_template",
+                  variables = [NotificationVariable "name" "Alice"],
+                  channel = Email "alice@example.com"
                 }
         result :: Either SomeException () <- try $ runRIO testApp (processNotification msg)
         result `shouldSatisfy` isLeft

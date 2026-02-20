@@ -45,6 +45,7 @@ dependencies:
 - mtl
 - time
 - wai-cors
+- template-haskell
 
 ghc-options:
 - -Wall
@@ -91,6 +92,8 @@ library:
     - Service.Metrics.Database
     - Service.Auth
     - Service.Cors
+    - Service.Metadata
+    - Service.Persist
 
 tests:
   haskell-service-lib-test:

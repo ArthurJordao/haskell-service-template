@@ -9,13 +9,13 @@ module Ports.Repository
   )
 where
 
-import Database.Persist.Sql (Entity, entityVal, get, getBy, insert, selectList, toSqlKey)
+import Database.Persist.Sql (Entity, entityVal, get, getBy, selectList, toSqlKey)
 import DB.Account (Account, AccountId, Unique (UniqueAuthUserId))
 import RIO
-import Service.CorrelationId (HasLogContext (..))
-import Service.Database (HasDB (..), runSqlPoolWithCid)
+import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..))
+import Service.Database (HasDB (..), insertWithMeta, runSqlPoolWithCid)
 
-type Repo env = (HasLogFunc env, HasLogContext env, HasDB env)
+type Repo env = (HasLogFunc env, HasLogContext env, HasDB env, HasCorrelationId env)
 
 findAllAccounts :: Repo env => RIO env [Entity Account]
 findAllAccounts = do
@@ -33,6 +33,4 @@ findAccountByAuthUserId uid = do
   fmap entityVal <$> runSqlPoolWithCid (getBy (UniqueAuthUserId uid)) pool
 
 createAccount :: Repo env => Account -> RIO env AccountId
-createAccount account = do
-  pool <- view dbL
-  runSqlPoolWithCid (insert account) pool
+createAccount = insertWithMeta

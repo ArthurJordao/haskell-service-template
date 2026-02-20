@@ -19,19 +19,19 @@ import Auth.JWT
 import Auth.Password (hashPassword, verifyPassword)
 import Data.Time (addUTCTime, getCurrentTime, nominalDay)
 import Database.Persist.Sql (Entity (..), fromSqlKey)
-import DB.User (UserId)
+import DB.User (UserId, mkRefreshToken, mkUser)
 import qualified DB.User as User
 import Ports.Produce (publishUserRegistered)
 import Ports.Repository
 import RIO
 import RIO.Text (unpack)
 import Servant (err401, err409, err500, errBody)
-import Service.CorrelationId (HasLogContext (..), logInfoC)
+import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
 import Service.Kafka (HasKafkaProducer (..))
 
 -- | Constraint alias for auth domain functions.
-type AuthDB env = (HasLogFunc env, HasLogContext env, HasDB env)
+type AuthDB env = (HasLogFunc env, HasLogContext env, HasDB env, HasCorrelationId env)
 
 -- | Register a new user; returns (accessToken, refreshToken, expiresIn).
 -- Throws 409 if the email is already registered.
@@ -49,12 +49,7 @@ register jwt email password = do
     Nothing -> do
       mHash <- liftIO $ hashPassword password
       passwordHash <- maybe (throwM err500 {errBody = "Failed to hash password"}) return mHash
-      let newUser =
-            User.User
-              { User.userEmail = email,
-                User.userPasswordHash = passwordHash
-              }
-      userId <- createUser newUser
+      userId <- createUser (mkUser email passwordHash)
       publishUserRegistered (fromSqlKey userId) email
       issueTokenPair jwt userId email
 
@@ -155,14 +150,6 @@ issueTokenPair jwt userId email = do
     Right pair -> return pair
 
   let expiresAt = addUTCTime (nominalDay * fromIntegral (jwtRefreshTokenExpiryDays jwt)) now
-      storedToken =
-        User.RefreshToken
-          { User.refreshTokenJti = jti,
-            User.refreshTokenUserId = userId,
-            User.refreshTokenExpiresAt = expiresAt,
-            User.refreshTokenRevoked = False,
-            User.refreshTokenCreatedAt = now
-          }
-  storeRefreshToken storedToken
+  storeRefreshToken (mkRefreshToken jti userId expiresAt False)
   logInfoC $ "Issued token pair for user: " <> displayShow userIdInt
   return (at, rt, jwtAccessTokenExpirySeconds jwt)
