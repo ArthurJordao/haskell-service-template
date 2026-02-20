@@ -39,6 +39,7 @@ library
       Service.Metrics.Database
       Service.Auth
       Service.Cors
+      Service.Logging
       Service.Metadata
       Service.Persist
   other-modules:

@@ -13,12 +13,15 @@ services:
   promtail:
     profiles: [logging]
     image: grafana/promtail:latest
+    ports:
+      - "9080:9080"
     volumes:
       - ./logs:/logs:ro
       - ./infra/promtail:/etc/promtail
     command: -config.file=/etc/promtail/promtail.yml
     depends_on:
       - loki
+    restart: on-failure
 
   prometheus:
     profiles: [logging]

@@ -33,8 +33,17 @@ scrape_configs:
           __path__: /logs/notification-service.log
 
     pipeline_stages:
-      # Promote the correlation-id embedded in log lines as a queryable label.
-      # RIO logs include [cid=<value>] when a correlation ID is set.
+      - multiline:
+          firstline: '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d'
+          max_wait_time: 3s
+      - drop:
+          expression: '^%\d+\|'
+      - regex:
+          expression: '^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+)'
+      - timestamp:
+          source: timestamp
+          format: '2006-01-02 15:04:05.999999'
+          action_on_failure: fudge
       - match:
           selector: '{job="haskell-services"}'
           stages:
