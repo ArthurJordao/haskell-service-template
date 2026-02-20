@@ -1,23 +1,24 @@
 SERVICES := account-service auth-service dead-letter-queue notification-service
 DEV_TARGETS := $(addprefix dev-,$(SERVICES))
+COMPOSE := podman compose
 
 .PHONY: infra infra-down logs-up logs-down build setup generate-keys $(SERVICES) $(DEV_TARGETS) admin-ui-install admin-ui-dev admin-ui-build
 
 ## Start infrastructure (Kafka)
 infra:
-	docker compose up -d
+	$(COMPOSE) up -d
 
 ## Stop infrastructure
 infra-down:
-	docker compose down
+	$(COMPOSE) down
 
 ## Start logging stack (Loki + Promtail + Grafana) — http://localhost:3000
 logs-up:
-	docker compose --profile logging up -d
+	$(COMPOSE) --profile logging up -d
 
 ## Stop logging stack
 logs-down:
-	docker compose --profile logging down
+	$(COMPOSE) --profile logging down
 
 ## Generate a fresh EC P-256 key pair (prints JWT_PRIVATE_KEY and JWT_PUBLIC_KEY)
 generate-keys:
