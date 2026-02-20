@@ -1,0 +1,45 @@
+cradle:
+  stack:
+    # haskell-service-lib
+    - path: "./packages/haskell-service-lib/src"
+      component: "haskell-service-lib:lib"
+    - path: "./packages/haskell-service-lib/test"
+      component: "haskell-service-lib:test:haskell-service-lib-test"
+
+    # account-service
+    - path: "./services/account-service/src"
+      component: "account-service:lib"
+    - path: "./services/account-service/app"
+      component: "account-service:exe:account-service-exe"
+    - path: "./services/account-service/migrations-app"
+      component: "account-service:exe:account-service-migrations"
+    - path: "./services/account-service/test"
+      component: "account-service:test:account-service-test"
+
+    # auth-service
+    - path: "./services/auth-service/src"
+      component: "auth-service:lib"
+    - path: "./services/auth-service/app"
+      component: "auth-service:exe:auth-service-exe"
+    - path: "./services/auth-service/migrations-app"
+      component: "auth-service:exe:auth-service-migrations"
+    - path: "./services/auth-service/test"
+      component: "auth-service:test:auth-service-test"
+
+    # dead-letter-queue
+    - path: "./services/dead-letter-queue/src"
+      component: "dead-letter-queue:lib"
+    - path: "./services/dead-letter-queue/app"
+      component: "dead-letter-queue:exe:dead-letter-queue-exe"
+    - path: "./services/dead-letter-queue/migrations-app"
+      component: "dead-letter-queue:exe:dead-letter-queue-migrations"
+    - path: "./services/dead-letter-queue/test"
+      component: "dead-letter-queue:test:dead-letter-queue-test"
+
+    # notification-service
+    - path: "./services/notification-service/src"
+      component: "notification-service:lib"
+    - path: "./services/notification-service/app"
+      component: "notification-service:exe:notification-service-exe"
+    - path: "./services/notification-service/test"
+      component: "notification-service:test:notification-service-test"
