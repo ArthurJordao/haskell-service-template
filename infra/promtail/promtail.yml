@@ -1,0 +1,35 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: haskell-services
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: haskell-services
+          __path__: /logs/*.log
+
+    # Extract service name from filename: /logs/auth-service.log → service=auth-service
+    relabel_configs:
+      - source_labels: [__path__]
+        regex: /logs/(.+)\.log
+        target_label: service
+
+    pipeline_stages:
+      # Promote the correlation-id embedded in log lines as a queryable label.
+      # RIO logs include [cid=<value>] when a correlation ID is set.
+      - match:
+          selector: '{job="haskell-services"}'
+          stages:
+            - regex:
+                expression: '.*\[cid=(?P<cid>[^\]]+)\].*'
+            - labels:
+                cid:

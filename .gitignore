@@ -3,3 +3,4 @@
 *.db*
 services/*/notifications/
 services/*/.env
+logs/*.log

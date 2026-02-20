@@ -1,4 +1,41 @@
 services:
+  # ── Logging stack (start with: make logs-up) ────────────────────────────────
+  loki:
+    profiles: [logging]
+    image: grafana/loki:latest
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./infra/loki:/etc/loki
+      - loki-data:/loki
+    command: -config.file=/etc/loki/loki.yml
+
+  promtail:
+    profiles: [logging]
+    image: grafana/promtail:latest
+    volumes:
+      - ./logs:/logs:ro
+      - ./infra/promtail:/etc/promtail
+    command: -config.file=/etc/promtail/promtail.yml
+    depends_on:
+      - loki
+
+  grafana:
+    profiles: [logging]
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - loki
+
+  # ── Kafka ────────────────────────────────────────────────────────────────────
   kafka:
     image: apache/kafka:latest
     ports:
@@ -16,3 +53,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+volumes:
+  loki-data:
+  grafana-data:
