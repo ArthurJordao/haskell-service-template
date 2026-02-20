@@ -91,6 +91,7 @@ library:
     - Service.Metrics.Kafka
     - Service.Metrics.Database
     - Service.Auth
+    - Service.Policy
     - Service.Cors
     - Service.Logging
     - Service.Metadata

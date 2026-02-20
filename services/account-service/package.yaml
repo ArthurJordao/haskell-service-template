@@ -123,5 +123,6 @@ tests:
     - bytestring
     - http-client
     - http-types
+    - mtl
     - wai
     - warp

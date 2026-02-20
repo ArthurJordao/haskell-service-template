@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 
+import Control.Monad.Except (ExceptT (..))
 import Control.Monad.Logger (runStderrLoggingT)
 import Data.Aeson (decode, encode)
 import qualified Data.ByteString.Lazy as BSL
@@ -26,12 +27,12 @@ import Ports.Server (API)
 import Types.In.UserRegistered (UserRegisteredEvent (..))
 import qualified Ports.Consumer as KafkaPort
 import qualified Ports.Server as Server
-import RIO
+import RIO hiding (Handler)
 import RIO.Text (pack, unpack)
 import qualified RIO.Text as T
 import qualified RIO.Seq as Seq
 import Servant (Proxy (..), err500, errBody)
-import Servant.Server (Context (..), hoistServerWithContext, serveWithContext)
+import Servant.Server (Context (..), Handler (..), ServerError, hoistServerWithContext, serveWithContext)
 import Service.Auth (AccessTokenClaims (..), JWTAuthConfig (..))
 import Service.CorrelationId
   ( CorrelationId (..),
@@ -257,8 +258,14 @@ testAppToWai env =
     hoistServerWithContext
       (Proxy @API)
       (Proxy @TestAppContext)
-      (runRIO env)
+      toHandler
       testServer
+  where
+    toHandler :: forall a. RIO TestApp a -> Handler a
+    toHandler action =
+      Handler $ ExceptT $
+        (Right <$> runRIO env action)
+          `catch` (\(e :: ServerError) -> return (Left e))
 
 -- ============================================================================
 -- HTTP helpers
@@ -355,8 +362,10 @@ spec = describe "Server" $ do
     withTestApp $ \port' testApp -> do
       setupAccount testApp 42 "eve@example.com"
 
+      -- Account is the first inserted row so its DB primary key is 1.
+      -- The bearer token carries the auth user ID (42), which must match account.authUserId.
       manager <- newManager defaultManagerSettings
-      req <- parseRequest (baseUrl port' <> "/accounts/42")
+      req <- parseRequest (baseUrl port' <> "/accounts/1")
       resp <-
         httpLbs
           req {requestHeaders = [("Authorization", "Bearer token-user-42")]}

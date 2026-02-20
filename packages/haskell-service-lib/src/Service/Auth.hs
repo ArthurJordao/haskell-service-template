@@ -9,10 +9,17 @@ module Service.Auth
     JWTAuthConfig (..),
     makeJWTAuthConfig,
     jwtPrincipalExtractor,
+    -- Servant combinators
     JWTAuth,
-    RequireOwner,
-    RequireOwnerOrScopes,
     HasScopes,
+    Authorize,
+    -- Request-level policy types (used inside Authorize '[...])
+    IsOwner,
+    HasScope,
+    -- Policy typeclasses (advanced use)
+    RequestCheck (..),
+    AnyCheck (..),
+    -- Helpers
     KnownSymbols (..),
   )
 where
@@ -43,6 +50,7 @@ import Data.Aeson
     (.=),
     (.:?),
   )
+import Data.Kind (Type)
 import Data.List (find)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -179,6 +187,10 @@ jwtPrincipalExtractor cfg req =
     Just token ->
       fmap (either (const Nothing) (Just . atcSubject)) (jwtAuthValidate cfg token)
 
+-- ============================================================================
+-- JWTAuth combinator — validates Bearer JWT, no scope/ownership check
+-- ============================================================================
+
 -- | Servant combinator: validates Bearer JWT, provides AccessTokenClaims to handler.
 data JWTAuth
 
@@ -204,95 +216,9 @@ instance
               Left _ -> delayedFailFatal err401
               Right claims -> return claims
 
--- | Servant combinator: captures a path param, validates JWT, and enforces ownership.
-data RequireOwner (sym :: Symbol) t
-
-instance
-  ( HasServer api ctx,
-    HasContextEntry ctx JWTAuthConfig,
-    KnownSymbol sym,
-    FromHttpApiData t,
-    Show t,
-    Typeable t
-  ) =>
-  HasServer (RequireOwner sym t :> api) ctx
-  where
-  type ServerT (RequireOwner sym t :> api) m = t -> AccessTokenClaims -> ServerT api m
-
-  hoistServerWithContext _ pc nt s =
-    \v c -> hoistServerWithContext (Proxy @api) pc nt (s v c)
-
-  route Proxy ctx sub =
-    CaptureRouter [hint] $
-      route (Proxy @api) ctx $
-        addCapture (fmap (\f (v, c) -> f v c) sub) $ \txt -> do
-          v <- either (\_ -> delayedFail err400) return (parseUrlPiece txt)
-          claims <- withRequest $ \req ->
-            case extractBearer req of
-              Nothing -> delayedFailFatal err401
-              Just token ->
-                liftIO (jwtAuthValidate cfg token) >>= \case
-                  Left _ -> delayedFailFatal err401
-                  Right c -> return c
-          let expected = jwtAuthSubjectPrefix cfg <> pack (show v)
-          when (expected /= atcSubject claims) $
-            delayedFailFatal err403 {errBody = "Forbidden"}
-          return (v, claims)
-    where
-      cfg = getContextEntry ctx :: JWTAuthConfig
-      hint = CaptureHint (pack $ symbolVal (Proxy @sym)) (typeRep (Proxy @t))
-
--- | Servant combinator: like 'RequireOwner', but also accepts tokens that carry
--- at least one of the @override@ scopes (e.g. @'["admin"]@).
-data RequireOwnerOrScopes (sym :: Symbol) t (override :: [Symbol])
-
-instance
-  ( HasServer api ctx,
-    HasContextEntry ctx JWTAuthConfig,
-    KnownSymbol sym,
-    FromHttpApiData t,
-    Show t,
-    Typeable t,
-    KnownSymbols override
-  ) =>
-  HasServer (RequireOwnerOrScopes sym t override :> api) ctx
-  where
-  type ServerT (RequireOwnerOrScopes sym t override :> api) m = t -> AccessTokenClaims -> ServerT api m
-
-  hoistServerWithContext _ pc nt s =
-    \v c -> hoistServerWithContext (Proxy @api) pc nt (s v c)
-
-  route Proxy ctx sub =
-    CaptureRouter [hint] $
-      route (Proxy @api) ctx $
-        addCapture (fmap (\f (v, c) -> f v c) sub) $ \txt -> do
-          v <- either (\_ -> delayedFail err400) return (parseUrlPiece txt)
-          claims <- withRequest $ \req ->
-            case extractBearer req of
-              Nothing -> delayedFailFatal err401
-              Just token ->
-                liftIO (jwtAuthValidate cfg token) >>= \case
-                  Left _ -> delayedFailFatal err401
-                  Right c -> return c
-          let expected = jwtAuthSubjectPrefix cfg <> pack (show v)
-              overrideScopes = map pack $ symbolVals (Proxy @override)
-              hasOverride = any (`elem` atcScopes claims) overrideScopes
-          unless (expected == atcSubject claims || hasOverride) $
-            delayedFailFatal err403 {errBody = "Forbidden"}
-          return (v, claims)
-    where
-      cfg = getContextEntry ctx :: JWTAuthConfig
-      hint = CaptureHint (pack $ symbolVal (Proxy @sym)) (typeRep (Proxy @t))
-
--- | Reflect a type-level list of Symbols to a value-level list of Strings.
-class KnownSymbols (syms :: [Symbol]) where
-  symbolVals :: Proxy syms -> [String]
-
-instance KnownSymbols '[] where
-  symbolVals _ = []
-
-instance (KnownSymbol s, KnownSymbols ss) => KnownSymbols (s ': ss) where
-  symbolVals _ = symbolVal (Proxy @s) : symbolVals (Proxy @ss)
+-- ============================================================================
+-- HasScopes combinator — validates JWT and enforces required scopes
+-- ============================================================================
 
 -- | Servant combinator: validates Bearer JWT and enforces that the token's
 -- scopes include all of @required@. Passes 'AccessTokenClaims' to the handler.
@@ -326,3 +252,114 @@ instance
                 if all (`elem` atcScopes claims) required
                   then return claims
                   else delayedFailFatal err403 {errBody = "Insufficient scopes"}
+
+-- ============================================================================
+-- Composable request-level policy system
+-- ============================================================================
+--
+-- Usage:
+--
+--   -- Allow owner OR admin:
+--   :> Authorize "id" Int64 '[IsOwner, HasScope "admin"]
+--
+--   -- Allow any authenticated user (no ownership check):
+--   :> JWTAuth :> Capture "id" Int64
+--
+-- The @Authorize@ combinator checks each policy in the list and grants access
+-- if ANY one passes (OR semantics). All policies are evaluated purely from
+-- request data (JWT claims + URL parameter) — no DB access.
+--
+-- For resource-level authorization (where you need to fetch the resource first),
+-- use 'Service.Policy.authorize' in the domain layer after fetching the resource.
+
+-- | Request-level policy: the captured URL parameter (shown as a string)
+-- concatenated with the JWT subject prefix must equal the JWT subject.
+-- Use this when the URL parameter IS the resource owner's user ID.
+--
+-- Example: @GET /users/42@ with a token whose subject is @"user-42"@.
+data IsOwner
+
+-- | Request-level policy: the JWT must carry the given scope.
+-- Example: @HasScope "admin"@ passes if @"admin" `elem` atcScopes claims@.
+data HasScope (s :: Symbol)
+
+-- | Typeclass for evaluating a single request-level policy.
+class RequestCheck (p :: Type) t where
+  checkRequest :: Proxy p -> JWTAuthConfig -> t -> AccessTokenClaims -> Bool
+
+instance Show t => RequestCheck IsOwner t where
+  checkRequest _ cfg v claims =
+    jwtAuthSubjectPrefix cfg <> pack (show v) == atcSubject claims
+
+instance KnownSymbol s => RequestCheck (HasScope s) t where
+  checkRequest _ _ _ claims =
+    pack (symbolVal (Proxy @s)) `elem` atcScopes claims
+
+-- | Typeclass for evaluating a list of policies with OR semantics:
+-- access is granted if ANY policy in the list passes.
+class AnyCheck (ps :: [Type]) t where
+  anyCheck :: Proxy ps -> JWTAuthConfig -> t -> AccessTokenClaims -> Bool
+
+instance AnyCheck '[] t where
+  anyCheck _ _ _ _ = False
+
+instance (RequestCheck p t, AnyCheck ps t) => AnyCheck (p ': ps) t where
+  anyCheck _ cfg v claims =
+    checkRequest (Proxy @p) cfg v claims
+      || anyCheck (Proxy @ps) cfg v claims
+
+-- | Servant combinator: captures a path parameter, validates the Bearer JWT,
+-- and grants access if ANY policy in @policies@ passes.
+--
+-- On success, passes @(capturedValue, AccessTokenClaims)@ to the handler.
+-- Returns 401 for missing/invalid tokens, 403 if no policy passes.
+data Authorize (sym :: Symbol) t (policies :: [Type])
+
+instance
+  ( HasServer api ctx,
+    HasContextEntry ctx JWTAuthConfig,
+    KnownSymbol sym,
+    FromHttpApiData t,
+    Show t,
+    Typeable t,
+    AnyCheck policies t
+  ) =>
+  HasServer (Authorize sym t policies :> api) ctx
+  where
+  type ServerT (Authorize sym t policies :> api) m = t -> AccessTokenClaims -> ServerT api m
+
+  hoistServerWithContext _ pc nt s =
+    \v c -> hoistServerWithContext (Proxy @api) pc nt (s v c)
+
+  route Proxy ctx sub =
+    CaptureRouter [hint] $
+      route (Proxy @api) ctx $
+        addCapture (fmap (\f (v, c) -> f v c) sub) $ \txt -> do
+          v <- either (\_ -> delayedFail err400) return (parseUrlPiece txt)
+          claims <- withRequest $ \req ->
+            case extractBearer req of
+              Nothing -> delayedFailFatal err401
+              Just token ->
+                liftIO (jwtAuthValidate cfg token) >>= \case
+                  Left _ -> delayedFailFatal err401
+                  Right c -> return c
+          unless (anyCheck (Proxy @policies) cfg v claims) $
+            delayedFailFatal err403 {errBody = "Forbidden"}
+          return (v, claims)
+    where
+      cfg = getContextEntry ctx :: JWTAuthConfig
+      hint = CaptureHint (pack $ symbolVal (Proxy @sym)) (typeRep (Proxy @t))
+
+-- ============================================================================
+-- Helpers
+-- ============================================================================
+
+-- | Reflect a type-level list of Symbols to a value-level list of Strings.
+class KnownSymbols (syms :: [Symbol]) where
+  symbolVals :: Proxy syms -> [String]
+
+instance KnownSymbols '[] where
+  symbolVals _ = []
+
+instance (KnownSymbol s, KnownSymbols ss) => KnownSymbols (s ': ss) where
+  symbolVals _ = symbolVal (Proxy @s) : symbolVals (Proxy @ss)

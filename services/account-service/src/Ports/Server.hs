@@ -15,7 +15,7 @@ import RIO
 import RIO.Text (pack)
 import Servant
 import Servant.Server.Generic (AsServerT)
-import Service.Auth (RequireOwnerOrScopes)
+import Service.Auth (AccessTokenClaims, JWTAuth)
 import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
 import Service.HttpClient (HasHttpClient, callServiceGet)
@@ -54,7 +54,8 @@ data Routes route = Routes
       route
         :- Summary "Get account by ID"
           :> "accounts"
-          :> RequireOwnerOrScopes "id" Int64 '["admin"]
+          :> JWTAuth
+          :> Capture "id" Int64
           :> Get '[JSON] Account,
     getExternalPost ::
       route
@@ -99,7 +100,7 @@ server =
   Routes
     { status = statusHandler,
       getAccounts = Domain.listAccounts,
-      getAccountById = \accId _claims -> Domain.getAccount accId,
+      getAccountById = \claims accId -> Domain.getAccount accId claims,
       getExternalPost = externalPostHandler,
       getMetrics = metricsEndpointHandler
     }
