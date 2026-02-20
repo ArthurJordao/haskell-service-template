@@ -20,6 +20,15 @@ services:
     depends_on:
       - loki
 
+  prometheus:
+    profiles: [logging]
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus:/etc/prometheus
+    command: --config.file=/etc/prometheus/prometheus.yml
+
   grafana:
     profiles: [logging]
     image: grafana/grafana:latest
@@ -34,6 +43,7 @@ services:
       - grafana-data:/var/lib/grafana
     depends_on:
       - loki
+      - prometheus
 
   # ── Kafka ────────────────────────────────────────────────────────────────────
   kafka:
