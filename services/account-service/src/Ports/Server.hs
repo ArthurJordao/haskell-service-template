@@ -15,7 +15,7 @@ import RIO
 import RIO.Text (pack)
 import Servant
 import Servant.Server.Generic (AsServerT)
-import Service.Auth (AccessTokenClaims, JWTAuth)
+import Service.Auth (JWTAuth)
 import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
 import Service.HttpClient (HasHttpClient, callServiceGet)
