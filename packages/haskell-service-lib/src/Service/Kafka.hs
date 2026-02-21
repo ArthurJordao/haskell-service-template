@@ -29,7 +29,6 @@ import RIO
 import qualified RIO.ByteString as BS
 import qualified RIO.ByteString.Lazy as BL
 import RIO.Text (pack, unpack)
-import Text.Read (reads)
 import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), appendCorrelationId, generateCorrelationId, logErrorC, logInfoC, logWarnC)
 import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 import System.IO.Error (mkIOError, userErrorType)
@@ -124,7 +123,14 @@ startConsumer config = do
           <> Kafka.Consumer.groupId (ConsumerGroupId configGroupId)
           <> noAutoCommit
           <> Kafka.Consumer.logLevel KafkaLogInfo
-          <> Kafka.Consumer.extraProps (Map.fromList [("auto.offset.reset", "earliest")])
+          <> Kafka.Consumer.extraProps
+            ( Map.fromList
+                [ ("auto.offset.reset", "earliest"),
+                  -- Refresh topic metadata every 5 s so the consumer detects
+                  -- newly-created topics quickly (default is 300 000 ms).
+                  ("topic.metadata.refresh.interval.ms", "5000")
+                ]
+            )
 
   let topicList = map topic (topicHandlers config)
   let kafkaSubscription = topics topicList
@@ -217,6 +223,14 @@ sendToDeadLetter originalTopic messageBytes headers errorType errorDetails cid =
   logErrorC $ "Sending message to dead letter queue: " <> display errorType <> " - " <> display errorDetails
   produceKafkaMessage (TopicName "DEADLETTER") Nothing dlm
 
+safeCommit :: (HasLogFunc env) => KafkaConsumer -> RIO env ()
+safeCommit consumer = do
+  result <- tryAny $ liftIO $ commitAllOffsets OffsetCommit consumer
+  case result of
+    Left ex -> logWarn $ "Failed to commit offsets: " <> displayShow ex
+    Right (Just err) -> logWarn $ "Commit offsets error: " <> displayShow err
+    Right Nothing -> return ()
+
 consumerLoop ::
   (HasLogFunc env, HasCorrelationId env, HasLogContext env, HasKafkaProducer env) =>
   KafkaConsumer ->
@@ -257,25 +271,17 @@ consumerLoop consumer config = do
               case crValue of
                 Nothing -> do
                   logWarnC "Received message with no value"
-                  void $ commitAllOffsets OffsetCommit consumer
+                  safeCommit consumer
                 Just valueBytes -> do
                   case decode (BL.fromStrict valueBytes) of
                     Nothing -> do
-                      sendToDeadLetter crTopic valueBytes crHeaders "JSON_DECODE_ERROR" "Failed to decode message as JSON" cid
-                      void $ commitAllOffsets OffsetCommit consumer
+                      void $ tryAny $ sendToDeadLetter crTopic valueBytes crHeaders "JSON_DECODE_ERROR" "Failed to decode message as JSON" cid
+                      safeCommit consumer
                     Just jsonValue -> do
                       -- Handler execution with automatic metrics collection
                       let topicText = case crTopic of TopicName t -> t
-                          -- Convert partition to Int by parsing the show output
-                          partitionText = pack $ show crPartition
-                          partitionId = case reads (unpack partitionText) of
-                            [(p, "")] -> p
-                            _ -> 0 -- Default to 0 if parsing fails
-                          -- Convert offset to Int by parsing the show output
-                          offsetText = pack $ show crOffset
-                          currentOffset = case reads (unpack offsetText) of
-                            [(o, "")] -> o
-                            _ -> 0 -- Default to 0 if parsing fails
+                          partitionId = unPartitionId crPartition
+                          currentOffset = fromIntegral (unOffset crOffset)
                       start <- liftIO getCurrentTime
                       result <- tryAny (h jsonValue)
                       end <- liftIO getCurrentTime
@@ -290,24 +296,45 @@ consumerLoop consumer config = do
                       case result of
                         Left ex -> do
                           logErrorC $ "<-- " <> display topicText <> " FAILED (" <> displayShow ms <> "ms): " <> displayShow ex
-                          sendToDeadLetter crTopic valueBytes crHeaders "HANDLER_ERROR" (pack $ show ex) cid
-                          void $ commitAllOffsets OffsetCommit consumer
+                          void $ tryAny $ sendToDeadLetter crTopic valueBytes crHeaders "HANDLER_ERROR" (pack $ show ex) cid
+                          safeCommit consumer
                         Right _ -> do
                           logInfoC $ "<-- " <> display topicText <> " OK (" <> displayShow ms <> "ms)"
-                          void $ commitAllOffsets OffsetCommit consumer
+                          safeCommit consumer
             Nothing -> do
               logWarnC $ "No handler configured for topic: " <> displayShow crTopic
-              void $ commitAllOffsets OffsetCommit consumer
+              safeCommit consumer
 
 -- | Start and run the Kafka consumer loop. If 'topicHandlers' is empty
 -- (the service only produces), this blocks the thread forever without
 -- opening a Kafka connection, so callers can always use @race_@ unconditionally.
+--
+-- On unexpected exit the consumer is closed and restarted automatically with
+-- exponential backoff (1 s → 2 s → … → 30 s cap).
 runConsumerLoop ::
   (HasLogFunc env, HasCorrelationId env, HasLogContext env, HasKafkaProducer env) =>
   ConsumerConfig env ->
   RIO env ()
 runConsumerLoop config
   | null (topicHandlers config) = liftIO $ forever $ CC.threadDelay maxBound
-  | otherwise = do
-      consumer <- startConsumer config
-      consumerLoop consumer config
+  | otherwise = go initialDelay
+  where
+    initialDelay = 1000000 -- 1 s in microseconds
+    maxDelay = 30000000 -- 30 s cap
+
+    go delayUs = do
+      result <- tryAny $
+        bracket
+          (startConsumer config)
+          (\c -> void $ liftIO $ closeConsumer c)
+          (`consumerLoop` config)
+      case result of
+        Right () -> return ()
+        Left ex -> do
+          logError $
+            "Consumer loop crashed, restarting in "
+              <> displayShow (delayUs `div` 1000000 :: Int)
+              <> "s: "
+              <> displayShow ex
+          liftIO $ CC.threadDelay delayUs
+          go (min (delayUs * 2) maxDelay)
