@@ -16,6 +16,10 @@ if [ ! -d "$SERVICE_DIR" ]; then
   exit 1
 fi
 
+# Capture repo root before cd so the log path is always absolute.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOG_DIR="$REPO_ROOT/logs"
+
 if [ -f "$SERVICE_DIR/.env" ]; then
   # shellcheck disable=SC1090
   set -a; source "$SERVICE_DIR/.env"; set +a
@@ -26,4 +30,4 @@ fi
 cd "$SERVICE_DIR"
 exec ghcid \
   --command="stack ghci ${SERVICE}:lib ${SERVICE}:exe:${SERVICE}-exe --ghci-options=-Wwarn" \
-  --test=":main"
+  --test=":main" | tee "$LOG_DIR/$SERVICE.log"
