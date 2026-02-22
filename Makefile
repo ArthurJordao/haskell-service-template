@@ -64,3 +64,9 @@ admin-ui-dev:
 ## Build admin UI for production
 admin-ui-build:
 	cd apps/admin-ui && npm run build
+
+caddy-start:
+	caddy start --config ./Caddyfile
+
+caddy-stop:
+	caddy stop

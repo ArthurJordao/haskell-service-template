@@ -1,0 +1,26 @@
+{
+    admin localhost:2020
+    https_port 8443
+    local_certs
+    auto_https disable_redirects
+}
+
+accounts.local.dev:8443 {
+    reverse_proxy localhost:8080
+}
+
+auth.local.dev:8443 {
+    reverse_proxy localhost:8081
+}
+
+dlq.local.dev:8443 {
+    reverse_proxy localhost:8082
+}
+
+notifications.local.dev:8443 {
+    reverse_proxy localhost:8083
+}
+
+admin.local.dev:8443 {
+    reverse_proxy localhost:5173
+  }
