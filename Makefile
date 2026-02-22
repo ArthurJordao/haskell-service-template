@@ -70,3 +70,6 @@ caddy-start:
 
 caddy-stop:
 	caddy stop
+
+reset-db:
+	rm services/*/*db*
