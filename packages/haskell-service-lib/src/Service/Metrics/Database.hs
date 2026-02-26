@@ -23,11 +23,11 @@ import Service.Metrics.Core
 -- ============================================================================
 
 data DatabaseMetrics = DatabaseMetrics
-  { dbQueryDuration :: !(Map Text Histogram),
+  { dbQueryDuration :: (Map Text Histogram),
     -- Key: operation
-    dbConnectionsActive :: !Gauge,
-    dbConnectionsIdle :: !Gauge,
-    dbQueryErrors :: !(Map Text Counter)
+    dbConnectionsActive :: Gauge,
+    dbConnectionsIdle :: Gauge,
+    dbQueryErrors :: (Map Text Counter)
     -- Key: error_type
   }
 

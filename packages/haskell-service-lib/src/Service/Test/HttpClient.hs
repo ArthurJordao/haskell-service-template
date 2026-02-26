@@ -31,22 +31,22 @@ import qualified RIO.Seq as Seq
 -- ============================================================================
 
 data MockRequest = MockRequest
-  { mrMethod :: !Text,
-    mrUrl :: !Text,
-    mrHeaders :: !RequestHeaders,
-    mrBody :: !(Maybe BL.ByteString)
+  { mrMethod :: Text,
+    mrUrl :: Text,
+    mrHeaders :: RequestHeaders,
+    mrBody :: (Maybe BL.ByteString)
   }
   deriving (Show, Eq)
 
 data MockResponse = MockResponse
-  { mrStatusCode :: !Int,
-    mrResponseBody :: !BL.ByteString
+  { mrStatusCode :: Int,
+    mrResponseBody :: BL.ByteString
   }
   deriving (Show, Eq)
 
 data MockHttpState = MockHttpState
-  { mhRequests :: !(TVar (Seq MockRequest)),
-    mhResponses :: !(TVar [(Text, Text, MockResponse)]) -- (method, url, response)
+  { mhRequests :: (TVar (Seq MockRequest)),
+    mhResponses :: (TVar [(Text, Text, MockResponse)]) -- (method, url, response)
   }
 
 newtype MockHttpClient = MockHttpClient MockHttpState

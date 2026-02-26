@@ -11,8 +11,8 @@ import Service.CorrelationId (HasCorrelationId (..), unCorrelationId)
 
 -- | Snapshot of audit metadata captured from the current request context.
 data EntityMetadata = EntityMetadata
-  { metaCreatedAt :: !UTCTime,
-    metaCreatedByCid :: !Text
+  { metaCreatedAt :: UTCTime,
+    metaCreatedByCid :: Text
   }
 
 -- | Types that carry metadata fields which can be overwritten atomically on insert.

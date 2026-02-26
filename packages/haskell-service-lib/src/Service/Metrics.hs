@@ -31,9 +31,9 @@ import Service.Metrics.Kafka (KafkaMetrics (..), HasKafkaMetrics (..), initKafka
 -- ============================================================================
 
 data Metrics = Metrics
-  { metricsHttp :: !HttpMetrics,
-    metricsKafka :: !KafkaMetrics,
-    metricsDatabase :: !DatabaseMetrics
+  { metricsHttp :: HttpMetrics,
+    metricsKafka :: KafkaMetrics,
+    metricsDatabase :: DatabaseMetrics
   }
 
 class HasMetrics env where

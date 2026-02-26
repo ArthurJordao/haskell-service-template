@@ -60,12 +60,12 @@ import Test.Hspec
 -- ============================================================================
 
 data TestApp = TestApp
-  { testLogFunc :: !LogFunc,
-    testLogContext :: !(Map Text Text),
-    testSettings :: !Settings,
-    testCorrelationId :: !CorrelationId,
-    testDb :: !ConnectionPool,
-    testMetrics :: !Metrics
+  { testLogFunc :: LogFunc,
+    testLogContext :: (Map Text Text),
+    testSettings :: Settings,
+    testCorrelationId :: CorrelationId,
+    testDb :: ConnectionPool,
+    testMetrics :: Metrics
   }
 
 instance HasLogFunc TestApp where

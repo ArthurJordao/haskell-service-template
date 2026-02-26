@@ -53,13 +53,13 @@ import RIO.Text (pack, unpack)
 
 -- | Configuration for JWT issuance and validation.
 data JWTSettings = JWTSettings
-  { jwtPrivateKey :: !JWK,
+  { jwtPrivateKey :: JWK,
     -- | Access token lifetime in seconds (e.g. 900 = 15 min).
-    jwtAccessTokenExpirySeconds :: !Int,
+    jwtAccessTokenExpirySeconds :: Int,
     -- | Refresh token lifetime in days (e.g. 7 = 7 days).
-    jwtRefreshTokenExpiryDays :: !Int,
+    jwtRefreshTokenExpiryDays :: Int,
     -- | Emails that receive admin-scoped access tokens.
-    jwtAdminEmails :: ![Text]
+    jwtAdminEmails :: [Text]
   }
 
 accessExpiry :: JWTSettings -> NominalDiffTime

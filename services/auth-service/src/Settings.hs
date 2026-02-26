@@ -17,10 +17,10 @@ import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 
 -- | Raw JWT environment variables (decoded via envy).
 data JWTEnvSettings = JWTEnvSettings
-  { jwtRawPrivateKey :: !String,
-    jwtRawAccessExpiry :: !Int,
-    jwtRawRefreshExpiry :: !Int,
-    jwtRawAdminEmails :: !String
+  { jwtRawPrivateKey :: String,
+    jwtRawAccessExpiry :: Int,
+    jwtRawRefreshExpiry :: Int,
+    jwtRawAdminEmails :: String
   }
 
 instance FromEnv JWTEnvSettings where
@@ -32,18 +32,18 @@ instance FromEnv JWTEnvSettings where
       <*> (env "ADMIN_EMAILS" .!= "")
 
 data CORSEnvSettings = CORSEnvSettings
-  { corsRawOrigins :: !String
+  { corsRawOrigins :: String
   }
 
 instance FromEnv CORSEnvSettings where
   fromEnv _ = CORSEnvSettings <$> (env "CORS_ALLOWED_ORIGINS" .!= "http://localhost:5173")
 
 data Settings = Settings
-  { server :: !Server.Settings,
-    kafka :: !KafkaPort.Settings,
-    database :: !Database.Settings,
-    jwt :: !JWTSettings,
-    corsOrigins :: ![Text]
+  { server :: Server.Settings,
+    kafka :: KafkaPort.Settings,
+    database :: Database.Settings,
+    jwt :: JWTSettings,
+    corsOrigins :: [Text]
   }
 
 decoder :: (HasLogFunc env) => RIO env Settings

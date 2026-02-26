@@ -31,8 +31,8 @@ import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 -- ============================================================================
 
 data Settings = Settings
-  { httpClientTimeout :: !Int,
-    httpClientMaxRetries :: !Int
+  { httpClientTimeout :: Int,
+    httpClientMaxRetries :: Int
   }
   deriving (Show, Eq)
 

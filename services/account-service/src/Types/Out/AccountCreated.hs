@@ -7,9 +7,9 @@ import Data.Aeson (FromJSON, ToJSON)
 import RIO
 
 data AccountCreatedEvent = AccountCreatedEvent
-  { accountId :: !Int,
-    accountName :: !Text,
-    accountEmail :: !Text
+  { accountId :: Int,
+    accountName :: Text,
+    accountEmail :: Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)

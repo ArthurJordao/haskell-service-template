@@ -22,14 +22,14 @@ import Service.Metrics.Core
 -- ============================================================================
 
 data HttpMetrics = HttpMetrics
-  { httpRequestsTotal :: !(Map (Text, Text, Text) Counter),
+  { httpRequestsTotal :: (Map (Text, Text, Text) Counter),
     -- Key: (method, endpoint, status)
-    httpRequestDuration :: !(Map (Text, Text) Histogram),
+    httpRequestDuration :: (Map (Text, Text) Histogram),
     -- Key: (method, endpoint)
-    httpActiveRequests :: !Gauge,
-    httpRequestSize :: !(Map (Text, Text) Histogram),
+    httpActiveRequests :: Gauge,
+    httpRequestSize :: (Map (Text, Text) Histogram),
     -- Key: (method, endpoint)
-    httpResponseSize :: !(Map (Text, Text) Histogram)
+    httpResponseSize :: (Map (Text, Text) Histogram)
     -- Key: (method, endpoint)
   }
 

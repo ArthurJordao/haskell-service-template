@@ -15,25 +15,25 @@ import qualified Service.Database as Database
 import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 
 data JWTEnvSettings = JWTEnvSettings
-  { jwtRawPublicKey :: !String
+  { jwtRawPublicKey :: String
   }
 
 instance FromEnv JWTEnvSettings where
   fromEnv _ = JWTEnvSettings <$> env "JWT_PUBLIC_KEY"
 
 data CORSEnvSettings = CORSEnvSettings
-  { corsRawOrigins :: !String
+  { corsRawOrigins :: String
   }
 
 instance FromEnv CORSEnvSettings where
   fromEnv _ = CORSEnvSettings <$> (env "CORS_ALLOWED_ORIGINS" .!= "http://localhost:5173")
 
 data Settings = Settings
-  { server :: !Server.Settings,
-    kafka :: !KafkaPort.Settings,
-    database :: !Database.Settings,
-    jwtPublicKey :: !JWK,
-    corsOrigins :: ![Text]
+  { server :: Server.Settings,
+    kafka :: KafkaPort.Settings,
+    database :: Database.Settings,
+    jwtPublicKey :: JWK,
+    corsOrigins :: [Text]
   }
 
 decoder :: (HasLogFunc env) => RIO env Settings

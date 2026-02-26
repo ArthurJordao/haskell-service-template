@@ -46,6 +46,7 @@ library
       OverloadedStrings
       NoImplicitPrelude
       BangPatterns
+      Strict
       BinaryLiterals
       DeriveGeneric
       ScopedTypeVariables
@@ -100,6 +101,7 @@ executable notification-service-exe
       OverloadedStrings
       NoImplicitPrelude
       BangPatterns
+      Strict
       BinaryLiterals
       DeriveGeneric
       ScopedTypeVariables
@@ -156,6 +158,7 @@ test-suite notification-service-test
       OverloadedStrings
       NoImplicitPrelude
       BangPatterns
+      Strict
       BinaryLiterals
       DeriveGeneric
       ScopedTypeVariables

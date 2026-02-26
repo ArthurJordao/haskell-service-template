@@ -12,8 +12,8 @@ import Servant.Server (ErrorFormatters (..), ServerError (..), defaultErrorForma
 import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 
 data Settings = Settings
-  { httpPort :: !Int,
-    httpEnvironment :: !Text
+  { httpPort :: Int,
+    httpEnvironment :: Text
   }
   deriving (Show, Eq)
 

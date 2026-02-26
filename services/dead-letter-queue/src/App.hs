@@ -29,13 +29,13 @@ import qualified Service.Kafka as Kafka
 import Settings (Settings (..), server)
 
 data App = App
-  { appLogFunc :: !LogFunc,
-    appLogContext :: !(Map Text Text),
-    appSettings :: !Settings,
-    appCorrelationId :: !CorrelationId,
-    db :: !ConnectionPool,
-    kafkaProducer :: !KafkaProducer,
-    appJwtConfig :: !JWTAuthConfig
+  { appLogFunc :: LogFunc,
+    appLogContext :: (Map Text Text),
+    appSettings :: Settings,
+    appCorrelationId :: CorrelationId,
+    db :: ConnectionPool,
+    kafkaProducer :: KafkaProducer,
+    appJwtConfig :: JWTAuthConfig
   }
 
 instance HasLogFunc App where

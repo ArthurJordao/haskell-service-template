@@ -56,14 +56,14 @@ import Text.Mustache (Template, compileTemplate)
 -- ============================================================================
 
 data TestApp = TestApp
-  { testLogFunc :: !LogFunc,
-    testLogContext :: !(Map Text Text),
+  { testLogFunc :: LogFunc,
+    testLogContext :: (Map Text Text),
     testSettings :: Settings,
-    testCorrelationId :: !CorrelationId,
-    testTemplates :: !(Map Text Template),
-    testNotificationsDir :: !FilePath,
-    testDb :: !ConnectionPool,
-    testJwtConfig :: !JWTAuthConfig
+    testCorrelationId :: CorrelationId,
+    testTemplates :: (Map Text Template),
+    testNotificationsDir :: FilePath,
+    testDb :: ConnectionPool,
+    testJwtConfig :: JWTAuthConfig
   }
 
 instance HasLogFunc TestApp where

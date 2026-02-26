@@ -27,10 +27,10 @@ import Service.Server
 -- ============================================================================
 
 data ExternalPost = ExternalPost
-  { userId :: !Int,
-    id :: !Int,
-    title :: !Text,
-    body :: !Text
+  { userId :: Int,
+    id :: Int,
+    title :: Text,
+    body :: Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)

@@ -34,10 +34,10 @@ import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 import System.IO.Error (mkIOError, userErrorType)
 
 data Settings = Settings
-  { kafkaBroker :: !Text,
-    kafkaGroupId :: !Text,
-    kafkaDeadLetterTopic :: !Text,
-    kafkaMaxRetries :: !Int
+  { kafkaBroker :: Text,
+    kafkaGroupId :: Text,
+    kafkaDeadLetterTopic :: Text,
+    kafkaMaxRetries :: Int
   }
   deriving (Show, Eq)
 
@@ -62,29 +62,29 @@ class HasKafkaProducer env where
   produceKafkaMessage :: (ToJSON a) => TopicName -> Maybe Text -> a -> RIO env ()
 
 data TopicHandler env = TopicHandler
-  { topic :: !TopicName,
-    handler :: !(Value -> RIO env ())
+  { topic :: TopicName,
+    handler :: (Value -> RIO env ())
   }
 
 data ConsumerConfig env = ConsumerConfig
-  { brokerAddress :: !Text,
-    groupId :: !Text,
-    topicHandlers :: ![TopicHandler env],
-    deadLetterTopic :: !TopicName,
-    maxRetries :: !Int,
+  { brokerAddress :: Text,
+    groupId :: Text,
+    topicHandlers :: [TopicHandler env],
+    deadLetterTopic :: TopicName,
+    maxRetries :: Int,
     consumerRecordMessageMetrics :: Text -> UTCTime -> UTCTime -> Either SomeException () -> RIO env (),
     consumerRecordOffsetMetrics :: Text -> Int -> Int -> Int -> RIO env ()
   }
 
 data DeadLetterMessage = DeadLetterMessage
-  { originalTopic :: !Text,
-    originalMessage :: !Value,
-    originalHeaders :: ![(Text, Text)],
-    errorType :: !Text,
-    errorDetails :: !Text,
-    correlationId :: !Text,
-    timestamp :: !UTCTime,
-    retryCount :: !Int
+  { originalTopic :: Text,
+    originalMessage :: Value,
+    originalHeaders :: [(Text, Text)],
+    errorType :: Text,
+    errorDetails :: Text,
+    correlationId :: Text,
+    timestamp :: UTCTime,
+    retryCount :: Int
   }
   deriving (Show, Eq, Generic)
 

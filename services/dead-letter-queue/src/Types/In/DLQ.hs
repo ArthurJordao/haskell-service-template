@@ -9,14 +9,14 @@ import Data.Time.Clock (UTCTime)
 import RIO
 
 data IncomingDeadLetter = IncomingDeadLetter
-  { originalTopic :: !Text,
-    originalMessage :: !Aeson.Value,
-    originalHeaders :: ![(Text, Text)],
-    errorType :: !Text,
-    errorDetails :: !Text,
-    correlationId :: !Text,
-    timestamp :: !UTCTime,
-    retryCount :: !Int
+  { originalTopic :: Text,
+    originalMessage :: Aeson.Value,
+    originalHeaders :: [(Text, Text)],
+    errorType :: Text,
+    errorDetails :: Text,
+    correlationId :: Text,
+    timestamp :: UTCTime,
+    retryCount :: Int
   }
   deriving stock (Show, Eq, Generic)
 

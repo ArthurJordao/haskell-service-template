@@ -17,16 +17,16 @@ import qualified RIO.Seq as Seq
 import Service.Kafka (ConsumerConfig (..), TopicHandler (..))
 
 data QueuedMessage = QueuedMessage
-  { qmTopic :: !TopicName,
-    qmKey :: !(Maybe Text),
-    qmValue :: !Value
+  { qmTopic :: TopicName,
+    qmKey :: (Maybe Text),
+    qmValue :: Value
   }
   deriving (Show, Eq)
 
 data MockKafkaState = MockKafkaState
-  { messageQueue :: !(TVar (Seq QueuedMessage)),
-    messageCounter :: !(TVar Int),
-    consumedMessages :: !(TVar (Seq QueuedMessage))
+  { messageQueue :: (TVar (Seq QueuedMessage)),
+    messageCounter :: (TVar Int),
+    consumedMessages :: (TVar (Seq QueuedMessage))
   }
 
 newtype MockProducer = MockProducer MockKafkaState

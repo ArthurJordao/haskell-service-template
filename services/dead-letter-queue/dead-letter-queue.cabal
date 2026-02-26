@@ -43,6 +43,7 @@ library
       OverloadedStrings
       NoImplicitPrelude
       BangPatterns
+      Strict
       BinaryLiterals
       DeriveGeneric
       ScopedTypeVariables
@@ -107,6 +108,7 @@ executable dead-letter-queue-exe
       OverloadedStrings
       NoImplicitPrelude
       BangPatterns
+      Strict
       BinaryLiterals
       DeriveGeneric
       ScopedTypeVariables
@@ -172,6 +174,7 @@ executable dead-letter-queue-migrations
       OverloadedStrings
       NoImplicitPrelude
       BangPatterns
+      Strict
       BinaryLiterals
       DeriveGeneric
       ScopedTypeVariables
@@ -238,6 +241,7 @@ test-suite dead-letter-queue-test
       OverloadedStrings
       NoImplicitPrelude
       BangPatterns
+      Strict
       BinaryLiterals
       DeriveGeneric
       ScopedTypeVariables

@@ -22,17 +22,17 @@ import Service.Metrics.Core
 -- ============================================================================
 
 data KafkaMetrics = KafkaMetrics
-  { kafkaMessagesConsumed :: !(Map Text Counter),
+  { kafkaMessagesConsumed :: (Map Text Counter),
     -- Key: topic
-    kafkaMessageDuration :: !(Map Text Histogram),
+    kafkaMessageDuration :: (Map Text Histogram),
     -- Key: topic
-    kafkaDLQMessages :: !(Map (Text, Text) Counter),
+    kafkaDLQMessages :: (Map (Text, Text) Counter),
     -- Key: (topic, error_type)
-    kafkaConsumerOffset :: !(Map (Text, Int) Gauge),
+    kafkaConsumerOffset :: (Map (Text, Int) Gauge),
     -- Key: (topic, partition)
-    kafkaHighWaterMark :: !(Map (Text, Int) Gauge),
+    kafkaHighWaterMark :: (Map (Text, Int) Gauge),
     -- Key: (topic, partition)
-    kafkaConsumerLag :: !(Map (Text, Int) Gauge)
+    kafkaConsumerLag :: (Map (Text, Int) Gauge)
     -- Key: (topic, partition)
   }
 

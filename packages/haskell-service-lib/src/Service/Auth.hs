@@ -85,20 +85,20 @@ instance MonadRandom m => MonadRandom (ExceptT e m) where
 
 -- | Claims extracted from a verified access token.
 data AccessTokenClaims = AccessTokenClaims
-  { atcSubject :: !Text,
-    atcEmail :: !(Maybe Text),
-    atcJti :: !Text,
-    atcScopes :: ![Text]
+  { atcSubject :: Text,
+    atcEmail :: (Maybe Text),
+    atcJti :: Text,
+    atcScopes :: [Text]
   }
   deriving (Show, Eq)
 
 -- | jose claims subtype for access tokens.
 -- Used with signClaims for issuance and as a FromJSON target for verification.
 data JwtAccessClaims = JwtAccessClaims
-  { jacClaimsSet :: !ClaimsSet,
-    jacType :: !(Maybe Text),
-    jacEmail :: !(Maybe Text),
-    jacScopes :: !(Maybe [Text])
+  { jacClaimsSet :: ClaimsSet,
+    jacType :: (Maybe Text),
+    jacEmail :: (Maybe Text),
+    jacScopes :: (Maybe [Text])
   }
 
 instance HasClaimsSet JwtAccessClaims where

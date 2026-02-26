@@ -37,12 +37,12 @@ import Test.Hspec
 
 -- Test application with mock Kafka
 data TestApp = TestApp
-  { testAppLogFunc :: !LogFunc,
-    testAppLogContext :: !(Map Text Text),
-    testAppSettings :: !Settings,
-    testAppCorrelationId :: !CorrelationId,
-    testAppDb :: !ConnectionPool,
-    testAppMockKafka :: !MockKafkaState
+  { testAppLogFunc :: LogFunc,
+    testAppLogContext :: (Map Text Text),
+    testAppSettings :: Settings,
+    testAppCorrelationId :: CorrelationId,
+    testAppDb :: ConnectionPool,
+    testAppMockKafka :: MockKafkaState
   }
 
 instance HasLogFunc TestApp where

@@ -9,9 +9,9 @@ import Test.Hspec
 
 -- | Test environment with mock Kafka
 data TestEnv = TestEnv
-  { testLogFunc :: !LogFunc,
-    mockKafkaState :: !MockKafkaState,
-    producedMessages :: !(TVar [Text])
+  { testLogFunc :: LogFunc,
+    mockKafkaState :: MockKafkaState,
+    producedMessages :: (TVar [Text])
   }
 
 instance HasLogFunc TestEnv where

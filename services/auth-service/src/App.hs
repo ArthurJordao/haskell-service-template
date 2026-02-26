@@ -42,14 +42,14 @@ import Service.Metrics (HasMetrics (..), Metrics, initMetrics)
 import Settings (Settings (..), server)
 
 data App = App
-  { appLogFunc :: !LogFunc,
-    appLogContext :: !(Map Text Text),
-    appSettings :: !Settings,
-    appCorrelationId :: !CorrelationId,
-    db :: !ConnectionPool,
-    kafkaProducer :: !KafkaProducer,
-    httpClient :: !HttpClient,
-    appMetrics :: !Metrics
+  { appLogFunc :: LogFunc,
+    appLogContext :: (Map Text Text),
+    appSettings :: Settings,
+    appCorrelationId :: CorrelationId,
+    db :: ConnectionPool,
+    kafkaProducer :: KafkaProducer,
+    httpClient :: HttpClient,
+    appMetrics :: Metrics
   }
 
 instance HasLogFunc App where

@@ -20,16 +20,16 @@ instance ToJSON NotificationChannel where
   toJSON (Email addr) = object ["channelType" .= ("email" :: Text), "channelAddress" .= addr]
 
 data NotificationVariable = NotificationVariable
-  { propertyName :: !Text,
-    propertyValue :: !Text
+  { propertyName :: Text,
+    propertyValue :: Text
   }
   deriving stock (Generic)
   deriving anyclass (ToJSON)
 
 data NotificationMessage = NotificationMessage
-  { templateName :: !Text,
-    variables :: ![NotificationVariable],
-    channel :: !NotificationChannel
+  { templateName :: Text,
+    variables :: [NotificationVariable],
+    channel :: NotificationChannel
   }
   deriving stock (Generic)
   deriving anyclass (ToJSON)

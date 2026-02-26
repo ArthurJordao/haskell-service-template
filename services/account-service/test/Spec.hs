@@ -79,15 +79,15 @@ import Test.Hspec
 -- ============================================================================
 
 data TestApp = TestApp
-  { testAppLogFunc :: !LogFunc,
-    testAppLogContext :: !(Map Text Text),
-    testAppSettings :: !Settings,
-    testAppCorrelationId :: !CorrelationId,
-    testAppDb :: !ConnectionPool,
-    testAppMockKafka :: !MockKafkaState,
-    testAppHttpClient :: !HttpClient,
-    testAppMockHttp :: !MockHttpState,
-    testAppMetrics :: !Metrics
+  { testAppLogFunc :: LogFunc,
+    testAppLogContext :: (Map Text Text),
+    testAppSettings :: Settings,
+    testAppCorrelationId :: CorrelationId,
+    testAppDb :: ConnectionPool,
+    testAppMockKafka :: MockKafkaState,
+    testAppHttpClient :: HttpClient,
+    testAppMockHttp :: MockHttpState,
+    testAppMetrics :: Metrics
   }
 
 instance HasLogFunc TestApp where

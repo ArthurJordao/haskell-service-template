@@ -31,15 +31,15 @@ import Service.Metrics (Metrics, HasMetrics (..), initMetrics)
 import Settings (Settings (..), server)
 
 data App = App
-  { appLogFunc :: !LogFunc,
-    appLogContext :: !(Map Text Text),
-    appSettings :: !Settings,
-    appCorrelationId :: !CorrelationId,
-    db :: !ConnectionPool,
-    kafkaProducer :: !KafkaProducer,
-    httpClient :: !HttpClient,
-    appMetrics :: !Metrics,
-    appJwtConfig :: !JWTAuthConfig
+  { appLogFunc :: LogFunc,
+    appLogContext :: (Map Text Text),
+    appSettings :: Settings,
+    appCorrelationId :: CorrelationId,
+    db :: ConnectionPool,
+    kafkaProducer :: KafkaProducer,
+    httpClient :: HttpClient,
+    appMetrics :: Metrics,
+    appJwtConfig :: JWTAuthConfig
   }
 
 instance HasLogFunc App where

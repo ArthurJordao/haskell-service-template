@@ -70,6 +70,7 @@ default-extensions:
   - OverloadedStrings
   - NoImplicitPrelude
   - BangPatterns
+  - Strict
   - BinaryLiterals
   - DeriveGeneric
   - ScopedTypeVariables

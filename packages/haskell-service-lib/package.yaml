@@ -64,6 +64,7 @@ default-extensions:
   - OverloadedStrings
   - NoImplicitPrelude
   - BangPatterns
+  - Strict
   - DeriveGeneric
   - ScopedTypeVariables
   - DataKinds

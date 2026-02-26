@@ -35,10 +35,10 @@ data DatabaseType = SQLite | PostgreSQL
   deriving (Show, Eq)
 
 data Settings = Settings
-  { dbType :: !DatabaseType,
-    dbConnectionString :: !Text,
-    dbPoolSize :: !Int,
-    dbAutoMigrate :: !Bool
+  { dbType :: DatabaseType,
+    dbConnectionString :: Text,
+    dbPoolSize :: Int,
+    dbAutoMigrate :: Bool
   }
   deriving (Show, Eq)
 

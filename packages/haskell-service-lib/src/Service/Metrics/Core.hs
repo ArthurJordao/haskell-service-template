@@ -26,14 +26,14 @@ newtype Counter = Counter (TVar Double)
 newtype Gauge = Gauge (TVar Double)
 
 data HistogramBucket = HistogramBucket
-  { bucketUpperBound :: !Double,
-    bucketCount :: !(TVar Int)
+  { bucketUpperBound :: Double,
+    bucketCount :: (TVar Int)
   }
 
 data Histogram = Histogram
-  { histogramSum :: !(TVar Double),
-    histogramCount :: !(TVar Int),
-    histogramBuckets :: ![HistogramBucket]
+  { histogramSum :: (TVar Double),
+    histogramCount :: (TVar Int),
+    histogramBuckets :: [HistogramBucket]
   }
 
 -- ============================================================================

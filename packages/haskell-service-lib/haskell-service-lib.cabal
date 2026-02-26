@@ -55,6 +55,7 @@ library
       OverloadedStrings
       NoImplicitPrelude
       BangPatterns
+      Strict
       DeriveGeneric
       ScopedTypeVariables
       DataKinds
@@ -117,6 +118,7 @@ test-suite haskell-service-lib-test
       OverloadedStrings
       NoImplicitPrelude
       BangPatterns
+      Strict
       DeriveGeneric
       ScopedTypeVariables
       DataKinds

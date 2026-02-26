@@ -46,15 +46,15 @@ import System.FilePath (takeBaseName, takeExtension, (</>))
 import Text.Mustache (Template, compileTemplate)
 
 data App = App
-  { appLogFunc :: !LogFunc,
-    appLogContext :: !(Map Text Text),
-    appSettings :: !Settings,
-    appCorrelationId :: !CorrelationId,
-    kafkaProducer :: !KafkaProducer,
-    appTemplates :: !(Map Text Template),
-    appDb :: !ConnectionPool,
-    appNotificationsDir :: !FilePath,
-    appJwtConfig :: !JWTAuthConfig
+  { appLogFunc :: LogFunc,
+    appLogContext :: (Map Text Text),
+    appSettings :: Settings,
+    appCorrelationId :: CorrelationId,
+    kafkaProducer :: KafkaProducer,
+    appTemplates :: (Map Text Template),
+    appDb :: ConnectionPool,
+    appNotificationsDir :: FilePath,
+    appJwtConfig :: JWTAuthConfig
   }
 
 instance HasLogFunc App where

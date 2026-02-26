@@ -18,9 +18,9 @@ import System.Envy (FromEnv (..), decodeEnv, env, (.!=))
 -- ============================================================================
 
 data ServiceUrls = ServiceUrls
-  { authServiceUrl :: !Text,
-    notificationServiceUrl :: !Text,
-    externalApiUrl :: !Text
+  { authServiceUrl :: Text,
+    notificationServiceUrl :: Text,
+    externalApiUrl :: Text
   }
   deriving (Show, Eq)
 

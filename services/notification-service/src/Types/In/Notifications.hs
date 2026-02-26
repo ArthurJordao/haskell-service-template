@@ -29,17 +29,17 @@ instance FromJSON NotificationChannel where
 
 -- | A single template variable expressed as a named record.
 data NotificationVariable = NotificationVariable
-  { propertyName :: !Text,
-    propertyValue :: !Text
+  { propertyName :: Text,
+    propertyValue :: Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)
 
 -- | Kafka message payload for dispatching a notification.
 data NotificationMessage = NotificationMessage
-  { templateName :: !Text,
-    variables :: ![NotificationVariable],
-    channel :: !NotificationChannel
+  { templateName :: Text,
+    variables :: [NotificationVariable],
+    channel :: NotificationChannel
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)

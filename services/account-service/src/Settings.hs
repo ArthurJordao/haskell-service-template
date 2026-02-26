@@ -14,17 +14,17 @@ import qualified Service.Database as Database
 import System.Envy (FromEnv (..), decodeEnv, env)
 
 data JWTEnvSettings = JWTEnvSettings
-  { jwtRawPublicKey :: !String
+  { jwtRawPublicKey :: String
   }
 
 instance FromEnv JWTEnvSettings where
   fromEnv _ = JWTEnvSettings <$> env "JWT_PUBLIC_KEY"
 
 data Settings = Settings
-  { server :: !Server.Settings,
-    kafka :: !KafkaPort.Settings,
-    database :: !Database.Settings,
-    jwtPublicKey :: !JWK
+  { server :: Server.Settings,
+    kafka :: KafkaPort.Settings,
+    database :: Database.Settings,
+    jwtPublicKey :: JWK
   }
 
 decoder :: (HasLogFunc env) => RIO env Settings
