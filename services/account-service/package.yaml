@@ -52,6 +52,7 @@ dependencies:
 - haskell-service-lib
 - jose
 - time
+- hedis
 
 ghc-options:
 - -Wall

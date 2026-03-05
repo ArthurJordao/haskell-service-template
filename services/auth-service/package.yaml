@@ -55,6 +55,7 @@ dependencies:
 - http-client
 - crypton
 - memory
+- hedis
 
 ghc-options:
 - -Wall

@@ -48,6 +48,14 @@ services:
       - loki
       - prometheus
 
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
   # ── Kafka ────────────────────────────────────────────────────────────────────
   kafka:
     image: apache/kafka:latest
@@ -73,3 +81,4 @@ volumes:
   loki-data:
   grafana-data:
   kafka-data:
+  redis-data:

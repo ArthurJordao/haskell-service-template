@@ -24,12 +24,14 @@ import Service.Policy (AccessPolicy (..), authorize)
 type Domain env = (HasLogFunc env, HasLogContext env, HasDB env, HasCorrelationId env)
 
 -- | Who may access an Account record.
--- Owner: JWT subject matches "user-{authUserId}".
+-- Owner: JWT subject matches "user-{authUserId}" AND carries "read:accounts:own" scope.
 -- Admin: JWT carries the "admin" scope.
 instance AccessPolicy Account where
   canAccess claims account =
     "admin" `elem` atcScopes claims
-      || "user-" <> pack (show (accountAuthUserId account)) == atcSubject claims
+      || ( "read:accounts:own" `elem` atcScopes claims
+             && "user-" <> pack (show (accountAuthUserId account)) == atcSubject claims
+         )
 
 -- | List all accounts.
 listAccounts :: Domain env => RIO env [Account]

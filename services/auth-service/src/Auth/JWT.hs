@@ -4,7 +4,6 @@ module Auth.JWT
   ( JWTSettings (..),
     AccessTokenClaims (..),
     issueAccessToken,
-    issueAdminAccessToken,
     issueServiceToken,
     issueRefreshToken,
     verifyAccessToken,
@@ -58,7 +57,7 @@ data JWTSettings = JWTSettings
     jwtAccessTokenExpirySeconds :: Int,
     -- | Refresh token lifetime in days (e.g. 7 = 7 days).
     jwtRefreshTokenExpiryDays :: Int,
-    -- | Emails that receive admin-scoped access tokens.
+    -- | Emails that receive admin-scoped access tokens (bootstrap only).
     jwtAdminEmails :: [Text]
   }
 
@@ -71,9 +70,6 @@ refreshExpiry s = nominalDay * fromIntegral (jwtRefreshTokenExpiryDays s)
 generateJti :: IO Text
 generateJti = UUID.toText <$> nextRandom
 
-defaultUserScopes :: [Text]
-defaultUserScopes = ["read:accounts:own", "write:accounts:own"]
-
 -- | Merge extra JSON fields into a ClaimsSet via a JSON round-trip.
 -- This avoids the deprecated unregisteredClaims lens.
 withExtraClaims :: ClaimsSet -> Value -> Either Text ClaimsSet
@@ -85,9 +81,10 @@ withExtraClaims base extras =
         Error err -> Left (pack err)
     _ -> Left "Unexpected non-Object JSON for ClaimsSet"
 
--- | Issue a signed access JWT. Returns compact-encoded token text.
-issueAccessToken :: JWTSettings -> Int64 -> Text -> UTCTime -> IO (Either Text Text)
-issueAccessToken settings userId email issuedAt = do
+-- | Issue a signed access JWT with the given scopes.
+-- Returns compact-encoded token text.
+issueAccessToken :: JWTSettings -> Int64 -> Text -> [Text] -> UTCTime -> IO (Either Text Text)
+issueAccessToken settings userId email scopes issuedAt = do
   jti <- generateJti
   let expiry = addUTCTime (accessExpiry settings) issuedAt
       sub = fromString ("user-" <> show userId)
@@ -100,36 +97,7 @@ issueAccessToken settings userId email issuedAt = do
       extras = object
         [ "type" .= ("customer" :: Text)
         , "email" .= email
-        , "scopes" .= defaultUserScopes
-        ]
-  case withExtraClaims baseClaims extras of
-    Left err -> return $ Left err
-    Right claims -> do
-      result <- runExceptT $ signClaims (jwtPrivateKey settings) (newJWSHeader ((), ES256)) claims
-      case result of
-        Left (err :: JWTError) -> return $ Left (pack $ show err)
-        Right jwt -> return $ Right $ decodeUtf8Lenient $ BL.toStrict $ encodeCompact jwt
-
-defaultAdminScopes :: [Text]
-defaultAdminScopes = ["read:accounts:own", "write:accounts:own", "admin"]
-
--- | Issue a signed access JWT for an admin user.
--- Identical to 'issueAccessToken' but includes the @"admin"@ scope.
-issueAdminAccessToken :: JWTSettings -> Int64 -> Text -> UTCTime -> IO (Either Text Text)
-issueAdminAccessToken settings userId email issuedAt = do
-  jti <- generateJti
-  let expiry = addUTCTime (accessExpiry settings) issuedAt
-      sub = fromString ("user-" <> show userId)
-      baseClaims =
-        emptyClaimsSet
-          & claimSub ?~ sub
-          & claimIat ?~ NumericDate issuedAt
-          & claimExp ?~ NumericDate expiry
-          & claimJti ?~ fromString (unpack jti)
-      extras = object
-        [ "type" .= ("customer" :: Text)
-        , "email" .= email
-        , "scopes" .= defaultAdminScopes
+        , "scopes" .= scopes
         ]
   case withExtraClaims baseClaims extras of
     Left err -> return $ Left err
@@ -219,6 +187,9 @@ extractAccessClaims :: ClaimsSet -> Either Text AccessTokenClaims
 extractAccessClaims claims = do
   sub <- maybe (Left "Missing sub claim") (Right . suriToText) (claims ^. claimSub)
   jti <- maybe (Left "Missing jti claim") (Right . suriToText) (claims ^. claimJti)
+  iat <- case claims ^. claimIat of
+    Nothing -> Left "Missing iat claim"
+    Just (NumericDate t) -> Right t
   jac <- case fromJSON (toJSON claims) :: Result JwtAccessClaims of
     Error err -> Left (pack err)
     Success j -> Right j
@@ -228,7 +199,8 @@ extractAccessClaims claims = do
       { atcSubject = sub,
         atcEmail = jacEmail jac,
         atcJti = jti,
-        atcScopes = scopes
+        atcScopes = scopes,
+        atcIssuedAt = iat
       }
 
 -- | Convert a StringOrURI to Text via its JSON representation.

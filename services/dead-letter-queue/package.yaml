@@ -44,6 +44,7 @@ dependencies:
 - transformers
 - haskell-service-lib
 - jose
+- hedis
 
 ghc-options:
 - -Wall

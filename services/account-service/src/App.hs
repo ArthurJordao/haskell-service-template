@@ -26,8 +26,10 @@ import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
 import Service.HttpClient (HttpClient, HasHttpClient (..))
 import qualified Service.HttpClient as HttpClient
-import Service.Auth (JWTAuthConfig, jwtPrincipalExtractor, makeJWTAuthConfig)
+import qualified Database.Redis as Redis
+import Service.Auth (JWTAuthConfig, jwtPrincipalExtractor, makeJWTAuthConfig, withRevocationCheck)
 import Service.Metrics (Metrics, HasMetrics (..), initMetrics)
+import Service.Redis (HasRedis (..), makeRedisConnection, makeRevocationCheck)
 import Settings (Settings (..), server)
 
 data App = App
@@ -39,7 +41,8 @@ data App = App
     kafkaProducer :: KafkaProducer,
     httpClient :: HttpClient,
     appMetrics :: Metrics,
-    appJwtConfig :: JWTAuthConfig
+    appJwtConfig :: JWTAuthConfig,
+    appRedis :: Redis.Connection
   }
 
 instance HasLogFunc App where
@@ -77,8 +80,8 @@ instance HasHttpClient App where
 instance HasMetrics App where
   metricsL = lens appMetrics (\x y -> x {appMetrics = y})
 
--- OptionalKafkaMetrics and OptionalDatabaseMetrics instances are provided
--- automatically via overlapping instances from Service.Metrics
+instance HasRedis App where
+  getRedisConnection = appRedis
 
 initializeApp :: Settings -> LogFunc -> IO App
 initializeApp settings logFunc = runRIO logFunc $ do
@@ -95,9 +98,14 @@ initializeApp settings logFunc = runRIO logFunc $ do
   client <- HttpClient.initHttpClient
   metrics <- liftIO initMetrics
 
+  redisConn <- liftIO $ makeRedisConnection (redisUrl settings)
+
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
-      jwtCfg = makeJWTAuthConfig (jwtPublicKey settings) "user-"
+      jwtCfg =
+        withRevocationCheck
+          (makeRevocationCheck redisConn)
+          (makeJWTAuthConfig (jwtPublicKey settings) "user-")
 
   return
     App
@@ -109,7 +117,8 @@ initializeApp settings logFunc = runRIO logFunc $ do
         kafkaProducer = producer,
         httpClient = client,
         appMetrics = metrics,
-        appJwtConfig = jwtCfg
+        appJwtConfig = jwtCfg,
+        appRedis = redisConn
       }
 
 runApp :: App -> IO ()

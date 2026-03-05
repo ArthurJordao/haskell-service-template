@@ -71,6 +71,7 @@ library
     , esqueleto
     , fast-logger
     , haskell-service-lib
+    , hedis
     , hspec
     , http-client
     , http-types
@@ -137,6 +138,7 @@ executable dead-letter-queue-exe
     , esqueleto
     , fast-logger
     , haskell-service-lib
+    , hedis
     , hspec
     , http-client
     , http-types
@@ -203,6 +205,7 @@ executable dead-letter-queue-migrations
     , esqueleto
     , fast-logger
     , haskell-service-lib
+    , hedis
     , hspec
     , http-client
     , http-types
@@ -270,6 +273,7 @@ test-suite dead-letter-queue-test
     , esqueleto
     , fast-logger
     , haskell-service-lib
+    , hedis
     , hspec
     , http-client
     , http-types

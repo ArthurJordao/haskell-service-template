@@ -19,7 +19,9 @@ import Network.Wai.Handler.Warp (run)
 import RIO
 import RIO.Text (unpack)
 import Servant
-import Service.Auth (JWTAuthConfig, jwtPrincipalExtractor, makeJWTAuthConfig)
+import qualified Database.Redis as Redis
+import Service.Auth (JWTAuthConfig, jwtPrincipalExtractor, makeJWTAuthConfig, withRevocationCheck)
+import Service.Redis (HasRedis (..), makeRedisConnection, makeRevocationCheck)
 import Service.CorrelationId (CorrelationId (..), HasCorrelationId (..), HasLogContext (..), correlationIdMiddleware, defaultCorrelationId, extractCorrelationId, logInfoC, requestLoggingMiddleware, unCorrelationId)
 import Service.Cors (corsMiddleware)
 import Service.Database (HasDB (..))
@@ -35,7 +37,8 @@ data App = App
     appCorrelationId :: CorrelationId,
     db :: ConnectionPool,
     kafkaProducer :: KafkaProducer,
-    appJwtConfig :: JWTAuthConfig
+    appJwtConfig :: JWTAuthConfig,
+    appRedis :: Redis.Connection
   }
 
 instance HasLogFunc App where
@@ -53,6 +56,9 @@ instance Server.HasConfig App Settings where
 
 instance HasDB App where
   dbL = lens db (\x y -> x {db = y})
+
+instance HasRedis App where
+  getRedisConnection = appRedis
 
 class HasKafkaProducerHandle env where
   kafkaProducerL :: Lens' env KafkaProducer
@@ -79,9 +85,14 @@ initializeApp settings logFunc = runRIO logFunc $ do
 
   producer <- Kafka.startProducer (KafkaPort.kafkaBroker kafkaSettings)
 
+  redisConn <- liftIO $ makeRedisConnection (redisUrl settings)
+
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
-      jwtCfg = makeJWTAuthConfig (jwtPublicKey settings) "user-"
+      jwtCfg =
+        withRevocationCheck
+          (makeRevocationCheck redisConn)
+          (makeJWTAuthConfig (jwtPublicKey settings) "user-")
 
   return
     App
@@ -91,7 +102,8 @@ initializeApp settings logFunc = runRIO logFunc $ do
         appCorrelationId = initCid,
         db = pool,
         kafkaProducer = producer,
-        appJwtConfig = jwtCfg
+        appJwtConfig = jwtCfg,
+        appRedis = redisConn
       }
 
 runApp :: App -> IO ()

@@ -36,6 +36,7 @@ dependencies:
 - monad-logger
 - time
 - jose
+- hedis
 
 ghc-options:
 - -Wall

@@ -46,6 +46,7 @@ dependencies:
 - time
 - wai-cors
 - template-haskell
+- hedis
 
 ghc-options:
 - -Wall
@@ -97,6 +98,7 @@ library:
     - Service.Logging
     - Service.Metadata
     - Service.Persist
+    - Service.Redis
 
 tests:
   haskell-service-lib-test:

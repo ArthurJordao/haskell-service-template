@@ -43,6 +43,7 @@ library
       Service.Logging
       Service.Metadata
       Service.Persist
+      Service.Redis
   other-modules:
       Paths_haskell_service_lib
   autogen-modules:
@@ -75,6 +76,7 @@ library
     , crypton
     , envy
     , fast-logger
+    , hedis
     , http-client
     , http-client-tls
     , http-types
@@ -139,6 +141,7 @@ test-suite haskell-service-lib-test
     , envy
     , fast-logger
     , haskell-service-lib
+    , hedis
     , hspec
     , http-client
     , http-client-tls

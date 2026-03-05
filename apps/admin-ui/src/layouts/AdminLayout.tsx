@@ -6,6 +6,7 @@ import { Separator } from '@/components/ui/separator'
 const navItems = [
   { to: '/admin/dlq', label: 'Dead Letter Queue' },
   { to: '/admin/notifications', label: 'Notifications' },
+  { to: '/admin/users', label: 'Users' },
 ]
 
 export default function AdminLayout() {

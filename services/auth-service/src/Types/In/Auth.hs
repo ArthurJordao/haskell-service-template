@@ -30,7 +30,9 @@ data RefreshRequest = RefreshRequest
   deriving anyclass (FromJSON, ToJSON)
 
 data LogoutRequest = LogoutRequest
-  { refreshToken :: Text
+  { refreshToken :: Text,
+    -- | Optional access token; if provided its JTI is immediately revoked in Redis.
+    accessToken :: Maybe Text
   }
   deriving stock (Show, Eq, Generic)
   deriving anyclass (FromJSON, ToJSON)

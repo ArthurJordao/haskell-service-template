@@ -8,6 +8,7 @@ module Service.Auth
     JwtAccessClaims (..),
     JWTAuthConfig (..),
     makeJWTAuthConfig,
+    withRevocationCheck,
     jwtPrincipalExtractor,
     -- Servant combinators
     JWTAuth,
@@ -30,7 +31,9 @@ import Crypto.JWT
   ( ClaimsSet,
     HasClaimsSet (..),
     JWTError,
+    NumericDate (..),
     SignedJWT,
+    claimIat,
     claimJti,
     claimSub,
     decodeCompact,
@@ -52,6 +55,7 @@ import Data.Aeson
   )
 import Data.Kind (Type)
 import Data.List (find)
+import Data.Time (UTCTime)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Typeable (typeRep)
@@ -88,7 +92,8 @@ data AccessTokenClaims = AccessTokenClaims
   { atcSubject :: Text,
     atcEmail :: (Maybe Text),
     atcJti :: Text,
-    atcScopes :: [Text]
+    atcScopes :: [Text],
+    atcIssuedAt :: UTCTime
   }
   deriving (Show, Eq)
 
@@ -128,16 +133,24 @@ instance ToJSON JwtAccessClaims where
 -- | Config injected via Servant context for JWT validation.
 data JWTAuthConfig = JWTAuthConfig
   { jwtAuthValidate :: Text -> IO (Either Text AccessTokenClaims),
-    jwtAuthSubjectPrefix :: Text
+    jwtAuthSubjectPrefix :: Text,
+    -- | Optional post-validation revocation check (JTI denylist + invalidation ts).
+    -- 'Left' means the token is revoked; 'Right' means valid.
+    jwtRevocationCheck :: Maybe (AccessTokenClaims -> IO (Either Text ()))
   }
 
--- | Build a JWTAuthConfig from a JWK and subject prefix.
+-- | Build a JWTAuthConfig from a JWK and subject prefix. No revocation check.
 makeJWTAuthConfig :: JWK -> Text -> JWTAuthConfig
 makeJWTAuthConfig key prefix =
   JWTAuthConfig
     { jwtAuthValidate = verifyToken key,
-      jwtAuthSubjectPrefix = prefix
+      jwtAuthSubjectPrefix = prefix,
+      jwtRevocationCheck = Nothing
     }
+
+-- | Attach a Redis-backed revocation check to an existing JWTAuthConfig.
+withRevocationCheck :: (AccessTokenClaims -> IO (Either Text ())) -> JWTAuthConfig -> JWTAuthConfig
+withRevocationCheck f cfg = cfg {jwtRevocationCheck = Just f}
 
 verifyToken :: JWK -> Text -> IO (Either Text AccessTokenClaims)
 verifyToken key tokenText = do
@@ -156,12 +169,22 @@ extractClaims :: ClaimsSet -> Either Text AccessTokenClaims
 extractClaims claims = do
   sub <- maybe (Left "Missing sub") (Right . suriToText) (claims ^. claimSub)
   jti <- maybe (Left "Missing jti") (Right . suriToText) (claims ^. claimJti)
+  iat <- case claims ^. claimIat of
+    Nothing -> Left "Missing iat"
+    Just (NumericDate t) -> Right t
   jac <- case fromJSON (toJSON claims) :: Result JwtAccessClaims of
     Error err -> Left (pack err)
     Success j -> Right j
   let email = jacEmail jac
       scopes = fromMaybe [] (jacScopes jac)
-  Right AccessTokenClaims {atcSubject = sub, atcEmail = email, atcJti = jti, atcScopes = scopes}
+  Right
+    AccessTokenClaims
+      { atcSubject = sub,
+        atcEmail = email,
+        atcJti = jti,
+        atcScopes = scopes,
+        atcIssuedAt = iat
+      }
 
 suriToText :: (ToJSON a) => a -> Text
 suriToText suri = case toJSON suri of
@@ -188,6 +211,30 @@ jwtPrincipalExtractor cfg req =
       fmap (either (const Nothing) (Just . atcSubject)) (jwtAuthValidate cfg token)
 
 -- ============================================================================
+-- Shared auth check helper
+-- ============================================================================
+
+-- | Verify Bearer token and optionally run the revocation check.
+-- Returns 'Left' with the appropriate Servant error on failure.
+runAuthCheck ::
+  JWTAuthConfig ->
+  Request ->
+  DelayedIO AccessTokenClaims
+runAuthCheck cfg req =
+  case extractBearer req of
+    Nothing -> delayedFailFatal err401
+    Just token ->
+      liftIO (jwtAuthValidate cfg token) >>= \case
+        Left _ -> delayedFailFatal err401
+        Right claims ->
+          case jwtRevocationCheck cfg of
+            Nothing -> return claims
+            Just check ->
+              liftIO (check claims) >>= \case
+                Left _ -> delayedFailFatal err401
+                Right () -> return claims
+
+-- ============================================================================
 -- JWTAuth combinator — validates Bearer JWT, no scope/ownership check
 -- ============================================================================
 
@@ -208,13 +255,7 @@ instance
     where
       cfg = getContextEntry ctx :: JWTAuthConfig
       authCheck :: DelayedIO AccessTokenClaims
-      authCheck = withRequest $ \req ->
-        case extractBearer req of
-          Nothing -> delayedFailFatal err401
-          Just token ->
-            liftIO (jwtAuthValidate cfg token) >>= \case
-              Left _ -> delayedFailFatal err401
-              Right claims -> return claims
+      authCheck = withRequest (runAuthCheck cfg)
 
 -- ============================================================================
 -- HasScopes combinator — validates JWT and enforces required scopes
@@ -242,16 +283,11 @@ instance
       cfg = getContextEntry ctx :: JWTAuthConfig
       required = map pack $ symbolVals (Proxy @required)
       authCheck :: DelayedIO AccessTokenClaims
-      authCheck = withRequest $ \req ->
-        case extractBearer req of
-          Nothing -> delayedFailFatal err401
-          Just token ->
-            liftIO (jwtAuthValidate cfg token) >>= \case
-              Left _ -> delayedFailFatal err401
-              Right claims ->
-                if all (`elem` atcScopes claims) required
-                  then return claims
-                  else delayedFailFatal err403 {errBody = "Insufficient scopes"}
+      authCheck = withRequest $ \req -> do
+        claims <- runAuthCheck cfg req
+        if all (`elem` atcScopes claims) required
+          then return claims
+          else delayedFailFatal err403 {errBody = "Insufficient scopes"}
 
 -- ============================================================================
 -- Composable request-level policy system
@@ -336,13 +372,7 @@ instance
       route (Proxy @api) ctx $
         addCapture (fmap (\f (v, c) -> f v c) sub) $ \txt -> do
           v <- either (\_ -> delayedFail err400) return (parseUrlPiece txt)
-          claims <- withRequest $ \req ->
-            case extractBearer req of
-              Nothing -> delayedFailFatal err401
-              Just token ->
-                liftIO (jwtAuthValidate cfg token) >>= \case
-                  Left _ -> delayedFailFatal err401
-                  Right c -> return c
+          claims <- withRequest (runAuthCheck cfg)
           unless (anyCheck (Proxy @policies) cfg v claims) $
             delayedFailFatal err403 {errBody = "Forbidden"}
           return (v, claims)

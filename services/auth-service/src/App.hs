@@ -8,16 +8,21 @@ module App
   )
 where
 
-import Control.Monad.Logger (runStderrLoggingT)
+import Control.Monad.Logger (LoggingT, runStderrLoggingT)
 import qualified Data.Map.Strict as Map
-import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool)
+import qualified Database.Redis as Redis
+import Database.Persist (getBy, insert_)
+import Database.Persist.Sql (ConnectionPool, SqlBackend, runMigration, runSqlPool)
 import Kafka.Producer (KafkaProducer)
-import DB.User (migrateAll)
+import Auth.JWT (JWTSettings (jwtPrivateKey))
+import DB.User (migrateAll, Scope (..), Unique (UniqueScope))
+import Data.Time (getCurrentTime)
 import Network.Wai.Handler.Warp (run)
 import qualified Ports.Consumer as KafkaPort
 import qualified Ports.Server as Server
 import RIO
 import Servant
+import Service.Auth (JWTAuthConfig, jwtPrincipalExtractor, makeJWTAuthConfig, withRevocationCheck)
 import Service.CorrelationId
   ( CorrelationId (..),
     HasCorrelationId (..),
@@ -39,6 +44,7 @@ import qualified Service.HttpClient as HttpClient
 import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
 import Service.Metrics (HasMetrics (..), Metrics, initMetrics)
+import Service.Redis (HasRedis (..), makeRedisConnection, makeRevocationCheck)
 import Settings (Settings (..), server)
 
 data App = App
@@ -49,7 +55,9 @@ data App = App
     db :: ConnectionPool,
     kafkaProducer :: KafkaProducer,
     httpClient :: HttpClient,
-    appMetrics :: Metrics
+    appMetrics :: Metrics,
+    appJwtConfig :: JWTAuthConfig,
+    appRedis :: Redis.Connection
   }
 
 instance HasLogFunc App where
@@ -88,6 +96,9 @@ instance HasHttpClient App where
 instance HasMetrics App where
   metricsL = lens appMetrics (\x y -> x {appMetrics = y})
 
+instance HasRedis App where
+  getRedisConnection = appRedis
+
 initializeApp :: Settings -> LogFunc -> IO App
 initializeApp settings logFunc = runRIO logFunc $ do
   let dbSettings = database settings
@@ -97,14 +108,21 @@ initializeApp settings logFunc = runRIO logFunc $ do
 
   when (Database.dbAutoMigrate dbSettings) $ do
     logInfo "Running database migrations (DB_AUTO_MIGRATE=true)"
-    liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
+    liftIO $ runStderrLoggingT $ runSqlPool
+      (runMigration migrateAll >> seedDefaultScopes)
+      pool
 
   producer <- Kafka.startProducer (KafkaPort.kafkaBroker kafkaSettings)
   client <- HttpClient.initHttpClient
   metrics <- liftIO initMetrics
+  redisConn <- liftIO $ makeRedisConnection (redisUrl settings)
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
+      jwtCfg =
+        withRevocationCheck
+          (makeRevocationCheck redisConn)
+          (makeJWTAuthConfig (jwtPrivateKey (jwt settings)) "user-")
 
   return
     App
@@ -115,7 +133,9 @@ initializeApp settings logFunc = runRIO logFunc $ do
         db = pool,
         kafkaProducer = producer,
         httpClient = client,
-        appMetrics = metrics
+        appMetrics = metrics,
+        appJwtConfig = jwtCfg,
+        appRedis = redisConn
       }
 
 runApp :: App -> IO ()
@@ -134,12 +154,12 @@ runApp env = do
       logInfoC $ "Starting HTTP server on port " <> displayShow (Server.httpPort serverSettings)
       liftIO $ run (Server.httpPort serverSettings) (app appEnv)
 
-type AppContext = '[ErrorFormatters, App]
+type AppContext = '[ErrorFormatters, JWTAuthConfig, App]
 
 app :: App -> Application
 app baseEnv =
   let origins = map unpack (corsOrigins (appSettings baseEnv))
-   in corsMiddleware origins $ correlationIdMiddleware $ requestLoggingMiddleware (appLogFunc baseEnv) (\_ -> return Nothing) $ \req ->
+   in corsMiddleware origins $ correlationIdMiddleware $ requestLoggingMiddleware (appLogFunc baseEnv) (jwtPrincipalExtractor (appJwtConfig baseEnv)) $ \req ->
         let maybeCid = extractCorrelationId req
             cid = fromMaybe (error "CID middleware should always set CID") maybeCid
             cidText = unCorrelationId cid
@@ -155,4 +175,26 @@ app baseEnv =
     api = Proxy
 
     appContext :: App -> Context AppContext
-    appContext e = Server.jsonErrorFormatters :. e :. EmptyContext
+    appContext e = Server.jsonErrorFormatters :. appJwtConfig e :. e :. EmptyContext
+
+-- | Seed the default scope catalog if not already present.
+seedDefaultScopes :: ReaderT SqlBackend (LoggingT IO) ()
+seedDefaultScopes = do
+  now <- liftIO getCurrentTime
+  let seeds =
+        [ ("read:accounts:own", "Read own account data"),
+          ("write:accounts:own", "Write own account data"),
+          ("admin", "Full administrative access")
+        ]
+  forM_ seeds $ \(name, desc) -> do
+    existing <- getBy (UniqueScope name)
+    case existing of
+      Nothing ->
+        insert_
+          Scope
+            { scopeName = name,
+              scopeDescription = desc,
+              scopeCreatedAt = now,
+              scopeCreatedByCid = "system"
+            }
+      Just _ -> return ()

@@ -10,14 +10,15 @@ module Domain.Auth
 where
 
 import Auth.JWT
-  ( JWTSettings (..),
+  ( AccessTokenClaims (..),
+    JWTSettings (..),
     issueAccessToken,
-    issueAdminAccessToken,
     issueRefreshToken,
+    verifyAccessToken,
     verifyRefreshTokenJti,
   )
 import Auth.Password (hashPassword, verifyPassword)
-import Data.Time (addUTCTime, getCurrentTime, nominalDay)
+import Data.Time (addUTCTime, diffUTCTime, getCurrentTime, nominalDay)
 import Database.Persist.Sql (Entity (..), fromSqlKey)
 import DB.User (UserId, mkRefreshToken, mkUser)
 import qualified DB.User as User
@@ -29,6 +30,7 @@ import Servant (err401, err409, err500, errBody)
 import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
 import Service.Kafka (HasKafkaProducer (..))
+import Service.Redis (HasRedis, revokeJti)
 
 -- | Constraint alias for auth domain functions.
 type AuthDB env = (HasLogFunc env, HasLogContext env, HasDB env, HasCorrelationId env)
@@ -50,6 +52,7 @@ register jwt email password = do
       mHash <- liftIO $ hashPassword password
       passwordHash <- maybe (throwM err500 {errBody = "Failed to hash password"}) return mHash
       userId <- createUser (mkUser email passwordHash)
+      insertDefaultScopes userId
       publishUserRegistered (fromSqlKey userId) email
       issueTokenPair jwt userId email
 
@@ -98,22 +101,42 @@ refreshAccessToken jwt refreshToken = do
       case mUser of
         Nothing -> throwM err500 {errBody = "User not found"}
         Just user -> do
+          scopes <- getUserScopeNames userId
+          when (User.userEmail user `elem` jwtAdminEmails jwt && "admin" `notElem` scopes) $
+            bootstrapAdminScopeIfMissing userId
+          finalScopes <- getUserScopeNames userId
           now <- liftIO getCurrentTime
-          let issueAt = if User.userEmail user `elem` jwtAdminEmails jwt then issueAdminAccessToken else issueAccessToken
           at <-
-            liftIO (issueAt jwt (fromSqlKey userId) (User.userEmail user) now) >>= \case
+            liftIO (issueAccessToken jwt (fromSqlKey userId) (User.userEmail user) finalScopes now) >>= \case
               Left err -> throwM err500 {errBody = fromString (unpack err)}
               Right t -> return t
           return (at, jwtAccessTokenExpirySeconds jwt)
 
--- | Revoke a refresh token (logout). Silently succeeds on invalid tokens.
+-- | Revoke a refresh token (logout).
+-- If an access token is provided, its JTI is also added to the Redis denylist.
+-- Silently succeeds on invalid tokens.
 logout ::
-  AuthDB env =>
+  (AuthDB env, HasRedis env) =>
   JWTSettings ->
   Text ->
+  Maybe Text ->
   RIO env ()
-logout jwt refreshToken = do
+logout jwt refreshToken mAccessToken = do
   logInfoC "Logout request"
+
+  -- Revoke access token JTI in Redis if token is provided and valid.
+  case mAccessToken of
+    Nothing -> return ()
+    Just at ->
+      liftIO (verifyAccessToken jwt at) >>= \case
+        Left _ -> return () -- invalid/expired token; nothing to revoke
+        Right claims -> do
+          now <- liftIO getCurrentTime
+          let expiry = addUTCTime (fromIntegral (jwtAccessTokenExpirySeconds jwt)) (atcIssuedAt claims)
+              remaining = max 0 (round (diffUTCTime expiry now) :: Int)
+          when (remaining > 0) $ revokeJti (atcJti claims) remaining
+
+  -- Revoke refresh token in DB.
   jtiResult <- liftIO $ verifyRefreshTokenJti jwt refreshToken
   case jtiResult of
     Left _ ->
@@ -139,9 +162,14 @@ issueTokenPair ::
 issueTokenPair jwt userId email = do
   let userIdInt = fromSqlKey userId :: Int64
   now <- liftIO getCurrentTime
-  let issueAt = if email `elem` jwtAdminEmails jwt then issueAdminAccessToken else issueAccessToken
 
-  at <- liftIO (issueAt jwt userIdInt email now) >>= \case
+  -- Get DB-backed scopes, with admin bootstrap if the email is in the admin list.
+  scopes <- getUserScopeNames userId
+  when (email `elem` jwtAdminEmails jwt && "admin" `notElem` scopes) $
+    bootstrapAdminScopeIfMissing userId
+  finalScopes <- getUserScopeNames userId
+
+  at <- liftIO (issueAccessToken jwt userIdInt email finalScopes now) >>= \case
     Left err -> throwM err500 {errBody = fromString (unpack err)}
     Right t -> return t
 

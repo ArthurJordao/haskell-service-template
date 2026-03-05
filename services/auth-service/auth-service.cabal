@@ -30,6 +30,7 @@ library
       Auth.Password
       DB.User
       Domain.Auth
+      Domain.Scopes
       Lib
       Ports.Consumer
       Ports.Kafka
@@ -38,7 +39,9 @@ library
       Ports.Server
       Settings
       Types.In.Auth
+      Types.In.Scopes
       Types.Out.Auth
+      Types.Out.Scopes
       Types.Out.UserRegistered
   other-modules:
       Paths_auth_service
@@ -79,6 +82,7 @@ library
     , esqueleto
     , fast-logger
     , haskell-service-lib
+    , hedis
     , http-client
     , http-types
     , hw-kafka-client
@@ -148,6 +152,7 @@ executable auth-service-exe
     , esqueleto
     , fast-logger
     , haskell-service-lib
+    , hedis
     , http-client
     , http-types
     , hw-kafka-client
@@ -217,6 +222,7 @@ executable auth-service-migrations
     , esqueleto
     , fast-logger
     , haskell-service-lib
+    , hedis
     , http-client
     , http-types
     , hw-kafka-client
@@ -287,6 +293,7 @@ test-suite auth-service-test
     , esqueleto
     , fast-logger
     , haskell-service-lib
+    , hedis
     , hspec
     , http-client
     , http-types

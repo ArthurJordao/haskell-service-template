@@ -70,6 +70,7 @@ library
     , fast-logger
     , filepath
     , haskell-service-lib
+    , hedis
     , hw-kafka-client
     , jose
     , monad-logger
@@ -125,6 +126,7 @@ executable notification-service-exe
     , fast-logger
     , filepath
     , haskell-service-lib
+    , hedis
     , hw-kafka-client
     , jose
     , monad-logger
@@ -182,6 +184,7 @@ test-suite notification-service-test
     , fast-logger
     , filepath
     , haskell-service-lib
+    , hedis
     , hspec
     , http-client
     , http-types

@@ -13,7 +13,7 @@
 
 module DB.User where
 
-import Data.Time (UTCTime (..))
+import Data.Time (Day (..), UTCTime (..))
 import Database.Persist.TH
 import RIO
 import Service.Persist (deriveEntityMeta, persistWithMeta)
@@ -34,7 +34,22 @@ RefreshToken
   revoked Bool default=False
   UniqueJti jti
   deriving Show Generic
+
+Scope
+  name        Text
+  description Text
+  UniqueScope name
+  deriving Show Generic
+
+UserScope
+  userId    UserId
+  scope     Text
+  grantedBy UserId Maybe
+  UniqueUserScope userId scope
+  deriving Show Generic
   |]
 
 $(deriveEntityMeta ''User)
 $(deriveEntityMeta ''RefreshToken)
+$(deriveEntityMeta ''Scope)
+$(deriveEntityMeta ''UserScope)

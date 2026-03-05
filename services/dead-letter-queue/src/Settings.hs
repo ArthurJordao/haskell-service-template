@@ -28,12 +28,20 @@ data CORSEnvSettings = CORSEnvSettings
 instance FromEnv CORSEnvSettings where
   fromEnv _ = CORSEnvSettings <$> (env "CORS_ALLOWED_ORIGINS" .!= "http://localhost:5173")
 
+data RedisEnvSettings = RedisEnvSettings
+  { redisRawUrl :: String
+  }
+
+instance FromEnv RedisEnvSettings where
+  fromEnv _ = RedisEnvSettings <$> (env "REDIS_URL" .!= "redis://localhost:6379")
+
 data Settings = Settings
   { server :: Server.Settings,
     kafka :: KafkaPort.Settings,
     database :: Database.Settings,
     jwtPublicKey :: JWK,
-    corsOrigins :: [Text]
+    corsOrigins :: [Text],
+    redisUrl :: String
   }
 
 decoder :: (HasLogFunc env) => RIO env Settings
@@ -43,6 +51,7 @@ decoder = do
   dbSettings <- Database.decoder
   jwtEnv <- liftIO (decodeEnv @JWTEnvSettings) >>= either throwString return
   corsEnv <- liftIO (decodeEnv @CORSEnvSettings) >>= either throwString return
+  redisEnv <- liftIO (decodeEnv @RedisEnvSettings) >>= either throwString return
   jwk <- case eitherDecodeStrict' (encodeUtf8 (pack (jwtRawPublicKey jwtEnv))) :: Either String JWK of
     Left err -> throwString $ "Invalid JWT_PUBLIC_KEY: " <> err
     Right key -> return key
@@ -54,7 +63,8 @@ decoder = do
         kafka = kafkaSettings,
         database = dbSettings,
         jwtPublicKey = jwk,
-        corsOrigins = origins
+        corsOrigins = origins,
+        redisUrl = redisRawUrl redisEnv
       }
 
 loadSettings :: LogFunc -> IO Settings

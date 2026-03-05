@@ -11,16 +11,25 @@ where
 
 import Auth.JWT (JWTSettings (..))
 import qualified Domain.Auth as Domain
+import qualified Domain.Scopes as Scopes
+import Database.Persist (Entity (..))
+import Database.Persist.Sql (fromSqlKey, toSqlKey)
+import DB.User (UserId)
 import RIO
 import Servant
 import Servant.Server.Generic (AsServerT)
+import Service.Auth (AccessTokenClaims, HasScopes)
 import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
 import Service.Kafka (HasKafkaProducer (..))
 import Service.Metrics (HasMetrics (..), metricsHandler)
+import Service.Redis (HasRedis)
 import Service.Server
 import Types.In.Auth
+import Types.In.Scopes
 import Types.Out.Auth
+import Types.Out.Scopes
+import qualified DB.User as User
 
 -- ============================================================================
 -- Routes
@@ -60,6 +69,35 @@ data Routes route = Routes
           :> "logout"
           :> ReqBody '[JSON] LogoutRequest
           :> Post '[JSON] NoContent,
+    listScopeCatalog ::
+      route
+        :- Summary "List all available scopes (admin)"
+          :> "scopes"
+          :> HasScopes '["admin"]
+          :> Get '[JSON] [ScopeInfo],
+    listUsers ::
+      route
+        :- Summary "List users with their scopes (admin)"
+          :> "users"
+          :> HasScopes '["admin"]
+          :> Get '[JSON] [UserWithScopes],
+    getUserScopes ::
+      route
+        :- Summary "Get scopes for a specific user (admin)"
+          :> "users"
+          :> Capture "id" Int64
+          :> "scopes"
+          :> HasScopes '["admin"]
+          :> Get '[JSON] [Text],
+    setUserScopes ::
+      route
+        :- Summary "Replace scopes for a specific user (admin)"
+          :> "users"
+          :> Capture "id" Int64
+          :> "scopes"
+          :> HasScopes '["admin"]
+          :> ReqBody '[JSON] SetScopesRequest
+          :> Put '[JSON] NoContent,
     getMetrics ::
       route
         :- Summary "Prometheus metrics endpoint"
@@ -90,7 +128,8 @@ server ::
     HasDB env,
     HasKafkaProducer env,
     HasMetrics env,
-    HasCorrelationId env
+    HasCorrelationId env,
+    HasRedis env
   ) =>
   Routes (AsServerT (RIO env))
 server =
@@ -100,6 +139,10 @@ server =
       login = loginHandler,
       refresh = refreshHandler,
       logout = logoutHandler,
+      listScopeCatalog = listScopeCatalogHandler,
+      listUsers = listUsersHandler,
+      getUserScopes = getUserScopesHandler,
+      setUserScopes = setUserScopesHandler,
       getMetrics = metricsEndpointHandler
     }
 
@@ -174,14 +217,80 @@ logoutHandler ::
     HasLogContext env,
     HasConfig env settings,
     HasDB env,
-    HasCorrelationId env
+    HasCorrelationId env,
+    HasRedis env
   ) =>
   LogoutRequest ->
   RIO env NoContent
 logoutHandler req = do
   settings <- view (settingsL @env @settings)
   let jwt = jwtSettings @env @settings settings
-  Domain.logout jwt req.refreshToken
+  Domain.logout jwt req.refreshToken req.accessToken
+  return NoContent
+
+listScopeCatalogHandler ::
+  ( HasLogFunc env,
+    HasLogContext env,
+    HasDB env,
+    HasCorrelationId env
+  ) =>
+  AccessTokenClaims ->
+  RIO env [ScopeInfo]
+listScopeCatalogHandler _claims = do
+  entities <- Scopes.listAvailableScopes
+  return $ map toScopeInfo entities
+  where
+    toScopeInfo e =
+      ScopeInfo
+        { id = fromSqlKey (entityKey e),
+          name = User.scopeName (entityVal e),
+          description = User.scopeDescription (entityVal e)
+        }
+
+listUsersHandler ::
+  ( HasLogFunc env,
+    HasLogContext env,
+    HasDB env,
+    HasCorrelationId env
+  ) =>
+  AccessTokenClaims ->
+  RIO env [UserWithScopes]
+listUsersHandler _claims = do
+  pairs <- Scopes.listUsersWithScopes
+  return $ map toUserWithScopes pairs
+  where
+    toUserWithScopes (e, scopes) =
+      UserWithScopes
+        { id = fromSqlKey (entityKey e),
+          email = User.userEmail (entityVal e),
+          scopes = scopes
+        }
+
+getUserScopesHandler ::
+  ( HasLogFunc env,
+    HasLogContext env,
+    HasDB env,
+    HasCorrelationId env
+  ) =>
+  Int64 ->
+  AccessTokenClaims ->
+  RIO env [Text]
+getUserScopesHandler userId _claims =
+  Scopes.getUserScopes (toSqlKey userId :: UserId)
+
+setUserScopesHandler ::
+  ( HasLogFunc env,
+    HasLogContext env,
+    HasDB env,
+    HasCorrelationId env,
+    HasRedis env
+  ) =>
+  Int64 ->
+  AccessTokenClaims ->
+  SetScopesRequest ->
+  RIO env NoContent
+setUserScopesHandler userId _claims req = do
+  Scopes.setUserScopes (toSqlKey userId :: UserId) req.scopes
   return NoContent
 
 metricsEndpointHandler :: (HasMetrics env) => RIO env Text
