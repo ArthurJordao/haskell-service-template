@@ -11,11 +11,14 @@ import RIO
 import Service.Database (HasDB (..))
 import Service.CorrelationId (HasLogContext (..))
 import Service.Kafka
+import Service.Metrics (HasMetrics (..))
+import Service.Metrics.Kafka (recordKafkaMetricsInternal, recordKafkaOffsetMetricsInternal)
 
 consumerConfig ::
   ( HasLogFunc env,
     HasLogContext env,
-    HasDB env
+    HasDB env,
+    HasMetrics env
   ) =>
   Settings ->
   ConsumerConfig env
@@ -31,8 +34,8 @@ consumerConfig kafkaSettings =
         ],
       deadLetterTopic = TopicName "DEADLETTER-DLQ",
       maxRetries = kafkaMaxRetries kafkaSettings,
-      consumerRecordMessageMetrics = \_ _ _ _ -> return (),
-      consumerRecordOffsetMetrics = \_ _ _ _ -> return ()
+      consumerRecordMessageMetrics = recordKafkaMetricsInternal,
+      consumerRecordOffsetMetrics = recordKafkaOffsetMetricsInternal
     }
 
 deadLetterHandler ::

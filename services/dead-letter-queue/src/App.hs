@@ -28,6 +28,7 @@ import Service.Database (HasDB (..))
 import qualified Service.Database as Database
 import Service.Kafka (HasKafkaProducer (..))
 import qualified Service.Kafka as Kafka
+import Service.Metrics (HasMetrics (..), Metrics, initMetrics)
 import Settings (Settings (..), server)
 
 data App = App
@@ -37,6 +38,7 @@ data App = App
     appCorrelationId :: CorrelationId,
     db :: ConnectionPool,
     kafkaProducer :: KafkaProducer,
+    appMetrics :: Metrics,
     appJwtConfig :: JWTAuthConfig,
     appRedis :: Redis.Connection
   }
@@ -56,6 +58,9 @@ instance Server.HasConfig App Settings where
 
 instance HasDB App where
   dbL = lens db (\x y -> x {db = y})
+
+instance HasMetrics App where
+  metricsL = lens appMetrics (\x y -> x {appMetrics = y})
 
 instance HasRedis App where
   getRedisConnection = appRedis
@@ -86,6 +91,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
   producer <- Kafka.startProducer (KafkaPort.kafkaBroker kafkaSettings)
 
   redisConn <- liftIO $ makeRedisConnection (redisUrl settings)
+  metrics <- liftIO initMetrics
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
@@ -102,6 +108,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
         appCorrelationId = initCid,
         db = pool,
         kafkaProducer = producer,
+        appMetrics = metrics,
         appJwtConfig = jwtCfg,
         appRedis = redisConn
       }

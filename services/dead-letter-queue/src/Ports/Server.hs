@@ -18,6 +18,7 @@ import Service.Auth (HasScopes)
 import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
 import Service.Kafka (HasKafkaProducer (..))
+import Service.Metrics (HasMetrics (..), metricsHandler)
 import Service.Server
 import Types.Out.DLQ
 
@@ -31,6 +32,11 @@ data Routes route = Routes
         :- Summary "Health check endpoint"
           :> "status"
           :> Get '[JSON] Text,
+    getMetrics ::
+      route
+        :- Summary "Prometheus metrics endpoint"
+          :> "metrics"
+          :> Get '[PlainText] Text,
     listDeadLetters ::
       route
         :- Summary "List dead letter messages with optional filters"
@@ -100,12 +106,14 @@ server ::
     HasLogContext env,
     HasCorrelationId env,
     HasDB env,
-    HasKafkaProducer env
+    HasKafkaProducer env,
+    HasMetrics env
   ) =>
   Routes (AsServerT (RIO env))
 server =
   Routes
     { status = statusHandler,
+      getMetrics = metricsEndpointHandler,
       listDeadLetters = \_claims -> listDeadLettersHandler,
       getDeadLetter = \_claims -> getDeadLetterHandler,
       replayMessage = \_claims -> Domain.replayMessage,
@@ -120,6 +128,11 @@ statusHandler ::
 statusHandler = do
   logInfoC "DLQ status endpoint called"
   return "OK"
+
+metricsEndpointHandler :: HasMetrics env => RIO env Text
+metricsEndpointHandler = do
+  metrics <- view metricsL
+  liftIO $ metricsHandler metrics
 
 listDeadLettersHandler ::
   (HasLogFunc env, HasLogContext env, HasDB env) =>

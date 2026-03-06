@@ -11,6 +11,8 @@ import Kafka.Consumer (TopicName (..))
 import RIO
 import Service.CorrelationId (logErrorC)
 import Service.Kafka
+import Service.Metrics (HasMetrics (..))
+import Service.Metrics.Kafka (recordKafkaMetricsInternal, recordKafkaOffsetMetricsInternal)
 
 notificationsTopic :: TopicName
 notificationsTopic = TopicName "notifications"
@@ -19,7 +21,7 @@ notificationsTopic = TopicName "notifications"
 -- The consumer loop automatically sends failing messages to the dead-letter
 -- topic after 'maxRetries' attempts — handlers only need to throw on error.
 consumerConfig ::
-  Domain env =>
+  (Domain env, HasMetrics env) =>
   Settings ->
   ConsumerConfig env
 consumerConfig kafkaSettings =
@@ -34,8 +36,8 @@ consumerConfig kafkaSettings =
         ],
       deadLetterTopic = TopicName (kafkaDeadLetterTopic kafkaSettings),
       maxRetries = kafkaMaxRetries kafkaSettings,
-      consumerRecordMessageMetrics = \_ _ _ _ -> return (),
-      consumerRecordOffsetMetrics = \_ _ _ _ -> return ()
+      consumerRecordMessageMetrics = recordKafkaMetricsInternal,
+      consumerRecordOffsetMetrics = recordKafkaOffsetMetricsInternal
     }
 
 -- | Parse and dispatch a notification message.

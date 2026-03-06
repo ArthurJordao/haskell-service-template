@@ -12,6 +12,8 @@ import RIO
 import Service.CorrelationId (HasCorrelationId (..), HasLogContext (..), logInfoC, logWarnC)
 import Service.Database (HasDB (..))
 import Service.Kafka
+import Service.Metrics (HasMetrics (..))
+import Service.Metrics.Kafka (recordKafkaMetricsInternal, recordKafkaOffsetMetricsInternal)
 import Types.In.UserRegistered (UserRegisteredEvent (..))
 
 consumerConfig ::
@@ -19,7 +21,8 @@ consumerConfig ::
     HasLogContext env,
     HasDB env,
     HasKafkaProducer env,
-    HasCorrelationId env
+    HasCorrelationId env,
+    HasMetrics env
   ) =>
   Settings ->
   ConsumerConfig env
@@ -39,8 +42,8 @@ consumerConfig kafkaSettings =
         ],
       deadLetterTopic = TopicName (kafkaDeadLetterTopic kafkaSettings),
       maxRetries = kafkaMaxRetries kafkaSettings,
-      consumerRecordMessageMetrics = \_ _ _ _ -> return (),
-      consumerRecordOffsetMetrics = \_ _ _ _ -> return ()
+      consumerRecordMessageMetrics = recordKafkaMetricsInternal,
+      consumerRecordOffsetMetrics = recordKafkaOffsetMetricsInternal
     }
 
 accountCreatedHandler :: (HasLogFunc env, HasLogContext env) => Value -> RIO env ()

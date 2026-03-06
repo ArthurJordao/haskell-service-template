@@ -42,6 +42,7 @@ import qualified Service.Database as Database
 import Service.Kafka (HasKafkaProducer (..)
   )
 import qualified Service.Kafka as Kafka
+import Service.Metrics (HasMetrics (..), Metrics, initMetrics)
 import Settings (Settings (..), server)
 import qualified System.Directory as Dir
 import System.FilePath (takeBaseName, takeExtension, (</>))
@@ -56,6 +57,7 @@ data App = App
     appTemplates :: (Map Text Template),
     appDb :: ConnectionPool,
     appNotificationsDir :: FilePath,
+    appMetrics :: Metrics,
     appJwtConfig :: JWTAuthConfig,
     appRedis :: Redis.Connection
   }
@@ -81,6 +83,9 @@ instance HasDB App where
 
 instance HasNotificationDir App where
   notificationDirL = lens appNotificationsDir (\x y -> x {appNotificationsDir = y})
+
+instance HasMetrics App where
+  metricsL = lens appMetrics (\x y -> x {appMetrics = y})
 
 instance HasRedis App where
   getRedisConnection = appRedis
@@ -112,6 +117,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
     liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
 
   redisConn <- liftIO $ makeRedisConnection (redisUrl settings)
+  metrics <- liftIO initMetrics
 
   let initCid = defaultCorrelationId
       initContext = Map.singleton "cid" (unCorrelationId initCid)
@@ -130,6 +136,7 @@ initializeApp settings logFunc = runRIO logFunc $ do
         appTemplates = templates,
         appDb = pool,
         appNotificationsDir = notificationsDir settings,
+        appMetrics = metrics,
         appJwtConfig = jwtCfg,
         appRedis = redisConn
       }

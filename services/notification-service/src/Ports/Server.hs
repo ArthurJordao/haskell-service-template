@@ -17,6 +17,7 @@ import Servant.Server.Generic (AsServerT)
 import Service.Auth (HasScopes)
 import Service.CorrelationId (HasLogContext (..), logInfoC)
 import Service.Database (HasDB (..))
+import Service.Metrics (HasMetrics (..), metricsHandler)
 import Service.Server
 import Types.Out.Notifications
 
@@ -30,6 +31,11 @@ data Routes route = Routes
         :- Summary "Health check endpoint"
           :> "status"
           :> Get '[JSON] Text,
+    getMetrics ::
+      route
+        :- Summary "Prometheus metrics endpoint"
+          :> "metrics"
+          :> Get '[PlainText] Text,
     listNotifications ::
       route
         :- Summary "List sent notifications for a recipient"
@@ -58,12 +64,14 @@ server ::
   ( HasLogFunc env,
     HasLogContext env,
     HasDB env,
+    HasMetrics env,
     HasConfig env settings
   ) =>
   Routes (AsServerT (RIO env))
 server =
   Routes
     { status = statusHandler,
+      getMetrics = metricsEndpointHandler,
       listNotifications = \_claims -> listNotificationsHandler
     }
 
@@ -85,6 +93,11 @@ listNotificationsHandler maybeRecipient = do
   logInfoC $ "Listing notifications for recipient=" <> display recipient
   entities <- Repo.getNotificationsByRecipient recipient
   return $ map entityToResponse entities
+
+metricsEndpointHandler :: HasMetrics env => RIO env Text
+metricsEndpointHandler = do
+  metrics <- view metricsL
+  liftIO $ metricsHandler metrics
 
 -- ============================================================================
 -- Helpers
