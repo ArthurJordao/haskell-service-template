@@ -22,17 +22,17 @@ import Service.Metrics.Core
 -- ============================================================================
 
 data KafkaMetrics = KafkaMetrics
-  { kafkaMessagesConsumed :: (Map Text Counter),
+  { kafkaMessagesConsumed :: TVar (Map Text Counter),
     -- Key: topic
-    kafkaMessageDuration :: (Map Text Histogram),
+    kafkaMessageDuration :: TVar (Map Text Histogram),
     -- Key: topic
-    kafkaDLQMessages :: (Map (Text, Text) Counter),
+    kafkaDLQMessages :: TVar (Map (Text, Text) Counter),
     -- Key: (topic, error_type)
-    kafkaConsumerOffset :: (Map (Text, Int) Gauge),
+    kafkaConsumerOffset :: TVar (Map (Text, Int) Gauge),
     -- Key: (topic, partition)
-    kafkaHighWaterMark :: (Map (Text, Int) Gauge),
+    kafkaHighWaterMark :: TVar (Map (Text, Int) Gauge),
     -- Key: (topic, partition)
-    kafkaConsumerLag :: (Map (Text, Int) Gauge)
+    kafkaConsumerLag :: TVar (Map (Text, Int) Gauge)
     -- Key: (topic, partition)
   }
 
@@ -45,15 +45,13 @@ class HasKafkaMetrics env where
 
 initKafkaMetrics :: IO KafkaMetrics
 initKafkaMetrics =
-  return
-    KafkaMetrics
-      { kafkaMessagesConsumed = Map.empty,
-        kafkaMessageDuration = Map.empty,
-        kafkaDLQMessages = Map.empty,
-        kafkaConsumerOffset = Map.empty,
-        kafkaHighWaterMark = Map.empty,
-        kafkaConsumerLag = Map.empty
-      }
+  KafkaMetrics
+    <$> newTVarIO Map.empty
+    <*> newTVarIO Map.empty
+    <*> newTVarIO Map.empty
+    <*> newTVarIO Map.empty
+    <*> newTVarIO Map.empty
+    <*> newTVarIO Map.empty
 
 -- ============================================================================
 -- Kafka Instrumentation
@@ -68,35 +66,41 @@ instrumentKafkaHandler topicName handler = \value -> do
   metrics <- view kafkaMetricsL
   start <- liftIO getCurrentTime
 
-  -- Get or create counter for this topic
   counter <- liftIO $ atomically $ do
-    case Map.lookup topicName (kafkaMessagesConsumed metrics) of
+    m <- readTVar (kafkaMessagesConsumed metrics)
+    case Map.lookup topicName m of
       Just c -> return c
-      Nothing -> unsafeIOToSTM newCounter
-
+      Nothing -> do
+        c <- unsafeIOToSTM newCounter
+        modifyTVar' (kafkaMessagesConsumed metrics) (Map.insert topicName c)
+        return c
   liftIO $ incCounter counter
 
-  -- Run handler
   result <- tryAny (handler value)
 
   end <- liftIO getCurrentTime
   let duration = realToFrac $ diffUTCTime end start
 
-  -- Get or create histogram for this topic
   histogram <- liftIO $ atomically $ do
-    case Map.lookup topicName (kafkaMessageDuration metrics) of
+    m <- readTVar (kafkaMessageDuration metrics)
+    case Map.lookup topicName m of
       Just h -> return h
-      Nothing -> unsafeIOToSTM $ newHistogram defaultBuckets
-
+      Nothing -> do
+        h <- unsafeIOToSTM $ newHistogram defaultBuckets
+        modifyTVar' (kafkaMessageDuration metrics) (Map.insert topicName h)
+        return h
   liftIO $ observeHistogram histogram duration
 
   case result of
     Left ex -> do
-      -- Record DLQ metric
       dlqCounter <- liftIO $ atomically $ do
-        case Map.lookup (topicName, "handler_error") (kafkaDLQMessages metrics) of
+        m <- readTVar (kafkaDLQMessages metrics)
+        case Map.lookup (topicName, "handler_error") m of
           Just c -> return c
-          Nothing -> unsafeIOToSTM newCounter
+          Nothing -> do
+            c <- unsafeIOToSTM newCounter
+            modifyTVar' (kafkaDLQMessages metrics) (Map.insert (topicName, "handler_error") c)
+            return c
       liftIO $ incCounter dlqCounter
       throwIO ex
     Right _ -> return ()
@@ -118,27 +122,36 @@ recordKafkaMetricsInternal topicName start end result = do
   metrics <- view kafkaMetricsL
   let duration = realToFrac $ diffUTCTime end start
 
-  -- Increment message counter
   counter <- liftIO $ atomically $ do
-    case Map.lookup topicName (kafkaMessagesConsumed metrics) of
+    m <- readTVar (kafkaMessagesConsumed metrics)
+    case Map.lookup topicName m of
       Just c -> return c
-      Nothing -> unsafeIOToSTM newCounter
+      Nothing -> do
+        c <- unsafeIOToSTM newCounter
+        modifyTVar' (kafkaMessagesConsumed metrics) (Map.insert topicName c)
+        return c
   liftIO $ incCounter counter
 
-  -- Record duration histogram
   histogram <- liftIO $ atomically $ do
-    case Map.lookup topicName (kafkaMessageDuration metrics) of
+    m <- readTVar (kafkaMessageDuration metrics)
+    case Map.lookup topicName m of
       Just h -> return h
-      Nothing -> unsafeIOToSTM $ newHistogram defaultBuckets
+      Nothing -> do
+        h <- unsafeIOToSTM $ newHistogram defaultBuckets
+        modifyTVar' (kafkaMessageDuration metrics) (Map.insert topicName h)
+        return h
   liftIO $ observeHistogram histogram duration
 
-  -- Record DLQ metrics on error
   case result of
     Left _ -> do
       dlqCounter <- liftIO $ atomically $ do
-        case Map.lookup (topicName, "handler_error") (kafkaDLQMessages metrics) of
+        m <- readTVar (kafkaDLQMessages metrics)
+        case Map.lookup (topicName, "handler_error") m of
           Just c -> return c
-          Nothing -> unsafeIOToSTM newCounter
+          Nothing -> do
+            c <- unsafeIOToSTM newCounter
+            modifyTVar' (kafkaDLQMessages metrics) (Map.insert (topicName, "handler_error") c)
+            return c
       liftIO $ incCounter dlqCounter
     Right _ -> return ()
 
@@ -154,25 +167,34 @@ recordKafkaOffsetMetricsInternal topicName partition currentOffset highWaterMark
   let lag = highWaterMark - currentOffset
       key = (topicName, partition)
 
-  -- Update current offset
   offsetGauge <- liftIO $ atomically $ do
-    case Map.lookup key (kafkaConsumerOffset metrics) of
+    m <- readTVar (kafkaConsumerOffset metrics)
+    case Map.lookup key m of
       Just g -> return g
-      Nothing -> unsafeIOToSTM newGauge
+      Nothing -> do
+        g <- unsafeIOToSTM newGauge
+        modifyTVar' (kafkaConsumerOffset metrics) (Map.insert key g)
+        return g
   liftIO $ setGauge offsetGauge (fromIntegral currentOffset)
 
-  -- Update high water mark
   hwmGauge <- liftIO $ atomically $ do
-    case Map.lookup key (kafkaHighWaterMark metrics) of
+    m <- readTVar (kafkaHighWaterMark metrics)
+    case Map.lookup key m of
       Just g -> return g
-      Nothing -> unsafeIOToSTM newGauge
+      Nothing -> do
+        g <- unsafeIOToSTM newGauge
+        modifyTVar' (kafkaHighWaterMark metrics) (Map.insert key g)
+        return g
   liftIO $ setGauge hwmGauge (fromIntegral highWaterMark)
 
-  -- Update lag
   lagGauge <- liftIO $ atomically $ do
-    case Map.lookup key (kafkaConsumerLag metrics) of
+    m <- readTVar (kafkaConsumerLag metrics)
+    case Map.lookup key m of
       Just g -> return g
-      Nothing -> unsafeIOToSTM newGauge
+      Nothing -> do
+        g <- unsafeIOToSTM newGauge
+        modifyTVar' (kafkaConsumerLag metrics) (Map.insert key g)
+        return g
   liftIO $ setGauge lagGauge (fromIntegral lag)
 
 -- ============================================================================
@@ -181,23 +203,29 @@ recordKafkaOffsetMetricsInternal topicName partition currentOffset highWaterMark
 
 exportKafkaMetrics :: KafkaMetrics -> IO [Text]
 exportKafkaMetrics metrics = do
-  consumedCounts <- forM (Map.toList $ kafkaMessagesConsumed metrics) $ \(topic, Counter tvar) -> do
+  consumed    <- readTVarIO (kafkaMessagesConsumed metrics)
+  dlq         <- readTVarIO (kafkaDLQMessages metrics)
+  offsets     <- readTVarIO (kafkaConsumerOffset metrics)
+  hwms        <- readTVarIO (kafkaHighWaterMark metrics)
+  lags        <- readTVarIO (kafkaConsumerLag metrics)
+
+  consumedCounts <- forM (Map.toList consumed) $ \(topic, Counter tvar) -> do
     count <- readTVarIO tvar
     return $ "kafka_messages_consumed_total{topic=\"" <> topic <> "\"} " <> T.pack (show count)
 
-  dlqCounts <- forM (Map.toList $ kafkaDLQMessages metrics) $ \((topic, errorType), Counter tvar) -> do
+  dlqCounts <- forM (Map.toList dlq) $ \((topic, errorType), Counter tvar) -> do
     count <- readTVarIO tvar
     return $ "kafka_dlq_messages_total{topic=\"" <> topic <> "\",error_type=\"" <> errorType <> "\"} " <> T.pack (show count)
 
-  offsets <- forM (Map.toList $ kafkaConsumerOffset metrics) $ \((topic, partition), Gauge tvar) -> do
+  offsetLines <- forM (Map.toList offsets) $ \((topic, partition), Gauge tvar) -> do
     offset <- readTVarIO tvar
     return $ "kafka_consumer_offset{topic=\"" <> topic <> "\",partition=\"" <> T.pack (show partition) <> "\"} " <> T.pack (show offset)
 
-  highWaterMarks <- forM (Map.toList $ kafkaHighWaterMark metrics) $ \((topic, partition), Gauge tvar) -> do
+  highWaterMarks <- forM (Map.toList hwms) $ \((topic, partition), Gauge tvar) -> do
     hwm <- readTVarIO tvar
     return $ "kafka_high_water_mark{topic=\"" <> topic <> "\",partition=\"" <> T.pack (show partition) <> "\"} " <> T.pack (show hwm)
 
-  lags <- forM (Map.toList $ kafkaConsumerLag metrics) $ \((topic, partition), Gauge tvar) -> do
+  lagLines <- forM (Map.toList lags) $ \((topic, partition), Gauge tvar) -> do
     lag <- readTVarIO tvar
     return $ "kafka_consumer_lag{topic=\"" <> topic <> "\",partition=\"" <> T.pack (show partition) <> "\"} " <> T.pack (show lag)
 
@@ -207,8 +235,8 @@ exportKafkaMetrics metrics = do
       <> ["# HELP kafka_dlq_messages_total Messages sent to dead letter queue", "# TYPE kafka_dlq_messages_total counter"]
       <> dlqCounts
       <> ["# HELP kafka_consumer_offset Current consumer offset per partition", "# TYPE kafka_consumer_offset gauge"]
-      <> offsets
+      <> offsetLines
       <> ["# HELP kafka_high_water_mark Highest offset in the partition (latest message)", "# TYPE kafka_high_water_mark gauge"]
       <> highWaterMarks
       <> ["# HELP kafka_consumer_lag Lag between consumer offset and high water mark", "# TYPE kafka_consumer_lag gauge"]
-      <> lags
+      <> lagLines

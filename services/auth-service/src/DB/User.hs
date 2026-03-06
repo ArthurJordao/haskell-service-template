@@ -13,7 +13,7 @@
 
 module DB.User where
 
-import Data.Time (Day (..), UTCTime (..))
+import Data.Time (UTCTime (..))
 import Database.Persist.TH
 import RIO
 import Service.Persist (deriveEntityMeta, persistWithMeta)

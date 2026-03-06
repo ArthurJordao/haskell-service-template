@@ -35,7 +35,6 @@ import DB.User
     Unique (UniqueEmail, UniqueJti, UniqueUserScope),
     User,
     UserId,
-    UserScope,
     mkUserScope,
     userScopeScope,
     userScopeUserId,
