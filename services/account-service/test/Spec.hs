@@ -67,6 +67,7 @@ import Service.Test.Kafka
     newMockKafkaState,
     processAllMessages,
   )
+import Data.Time (UTCTime (..), Day (..))
 import qualified Data.Text.Encoding as TE
 import Crypto.JOSE.JWA.JWK (Crv (..), KeyMaterialGenParam (..))
 import Crypto.JOSE.JWK (genJWK)
@@ -183,7 +184,8 @@ mockJwtConfig =
                       { atcSubject = "user-" <> uid,
                         atcEmail = Just (uid <> "@example.com"),
                         atcJti = "jti-" <> uid,
-                        atcScopes = ["read:accounts:own"]
+                        atcScopes = ["read:accounts:own"],
+                        atcIssuedAt = UTCTime (ModifiedJulianDay 0) 0
                       }
               else if adminPrefix `T.isPrefixOf` token
                 then do
@@ -194,10 +196,12 @@ mockJwtConfig =
                         { atcSubject = "user-" <> uid,
                           atcEmail = Just (uid <> "@example.com"),
                           atcJti = "jti-admin-" <> uid,
-                          atcScopes = ["read:accounts:own", "admin"]
+                          atcScopes = ["read:accounts:own", "admin"],
+                          atcIssuedAt = UTCTime (ModifiedJulianDay 0) 0
                         }
                 else return (Left "invalid token"),
-      jwtAuthSubjectPrefix = "user-"
+      jwtAuthSubjectPrefix = "user-",
+      jwtRevocationCheck = Nothing
     }
 
 type TestAppContext = '[JWTAuthConfig]
@@ -226,7 +230,8 @@ withTestApp action = do
                   Database.dbPoolSize = 1,
                   Database.dbAutoMigrate = True
                 },
-            jwtPublicKey = testKey
+            jwtPublicKey = testKey,
+            redisUrl = "redis://localhost:6379"
           }
   logOptions <- logOptionsHandle stderr True
   withLogFunc logOptions $ \logFunc -> runRIO logFunc $ do

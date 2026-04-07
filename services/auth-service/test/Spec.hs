@@ -3,6 +3,7 @@
 
 import Auth.JWT (JWTSettings (..))
 import Crypto.JOSE.JWA.JWK (Crv (..), KeyMaterialGenParam (..))
+import qualified Crypto.JOSE.JWK
 import Crypto.JOSE.JWK (genJWK)
 import Control.Monad.Logger (runStderrLoggingT)
 import Data.Aeson (decode, encode)
@@ -40,8 +41,10 @@ import Ports.Server
 import qualified Ports.Server as Server
 import RIO hiding (Handler)
 import Control.Monad.Except (ExceptT (..))
-import Servant (Proxy (..))
-import Servant.Server (Handler (..), ServerError, hoistServer, serve)
+import qualified Database.Redis as Redis
+import Servant (Context (..), Proxy (..))
+import Servant.Server (Handler (..), ServerError, hoistServerWithContext, serveWithContext)
+import Service.Auth (JWTAuthConfig, makeJWTAuthConfig)
 import Service.CorrelationId
   ( CorrelationId (..),
     HasCorrelationId (..),
@@ -52,6 +55,7 @@ import Service.Database (HasDB (..))
 import qualified Service.Database as Database
 import Service.Kafka (HasKafkaProducer (..))
 import Service.Metrics (HasMetrics (..), Metrics, initMetrics)
+import Service.Redis (HasRedis (..), makeRedisConnection)
 import Settings (Settings (..))
 import Test.Hspec
 
@@ -65,7 +69,8 @@ data TestApp = TestApp
     testSettings :: Settings,
     testCorrelationId :: CorrelationId,
     testDb :: ConnectionPool,
-    testMetrics :: Metrics
+    testMetrics :: Metrics,
+    testRedis :: Redis.Connection
   }
 
 instance HasLogFunc TestApp where
@@ -91,6 +96,9 @@ instance HasKafkaProducer TestApp where
 
 instance HasMetrics TestApp where
   metricsL = lens testMetrics (\x y -> x {testMetrics = y})
+
+instance HasRedis TestApp where
+  getRedisConnection = testRedis
 
 -- ============================================================================
 -- Fixtures
@@ -126,13 +134,15 @@ withTestApp action = do
                 },
             database = dbSettings,
             jwt = testJwtSettings,
-            corsOrigins = []
+            corsOrigins = [],
+            redisUrl = "redis://localhost:6379"
           }
   logOptions <- logOptionsHandle stderr False
   withLogFunc logOptions $ \logFunc -> do
     pool <- Database.createConnectionPool dbSettings
     runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
     metrics <- initMetrics
+    redisConn <- liftIO $ makeRedisConnection "redis://localhost:6379"
     let testApp =
           TestApp
             { testLogFunc = logFunc,
@@ -140,15 +150,19 @@ withTestApp action = do
               testSettings = testSettings,
               testCorrelationId = defaultCorrelationId,
               testDb = pool,
-              testMetrics = metrics
+              testMetrics = metrics,
+              testRedis = redisConn
             }
-    testWithApplication (pure $ appToWai testApp) action
+    testWithApplication (pure $ appToWai testApp testKey) action
 
-appToWai :: TestApp -> Application
-appToWai env =
-  serve (Proxy @API) $
-    hoistServer (Proxy @API) toHandler Server.server
+type TestAppContext = '[JWTAuthConfig]
+
+appToWai :: TestApp -> Crypto.JOSE.JWK.JWK -> Application
+appToWai env key =
+  serveWithContext (Proxy @API) (jwtCfg :. EmptyContext) $
+    hoistServerWithContext (Proxy @API) (Proxy @TestAppContext) toHandler Server.server
   where
+    jwtCfg = makeJWTAuthConfig key "user-"
     -- throwM in RIO throws ServerError as an IO exception.
     -- Handler = ExceptT ServerError IO, so we catch and re-route it.
     toHandler :: forall a. RIO TestApp a -> Handler a
@@ -206,7 +220,7 @@ spec = around withTestApp $ do
       case mTokens of
         Nothing -> expectationFailure "Failed to decode AuthTokens"
         Just tokens -> do
-          accessToken tokens `shouldNotBe` ""
+          tokens.accessToken `shouldNotBe` ""
           tokens.refreshToken `shouldNotBe` ""
           tokenType tokens `shouldBe` "Bearer"
           expiresIn tokens `shouldBe` 900
@@ -256,7 +270,7 @@ spec = around withTestApp $ do
       regResp <- registerUser mgr port "frank@example.com" "pass"
       let Just tokens = decode @AuthTokens (responseBody regResp)
           rt = tokens.refreshToken
-      logoutResp <- postJSON mgr (baseUrl port <> "/auth/logout") (encode (LogoutRequest rt))
+      logoutResp <- postJSON mgr (baseUrl port <> "/auth/logout") (encode (LogoutRequest {refreshToken = rt, accessToken = Nothing}))
       responseStatus logoutResp `shouldBe` status200
       -- The revoked token must no longer be accepted
       refreshResp <- postJSON mgr (baseUrl port <> "/auth/refresh") (encode (RefreshRequest rt))
@@ -264,7 +278,7 @@ spec = around withTestApp $ do
 
     it "treats an expired or invalid token as already-logged-out (200)" $ \port -> do
       mgr <- newManager defaultManagerSettings
-      resp <- postJSON mgr (baseUrl port <> "/auth/logout") (encode (LogoutRequest "invalid.token"))
+      resp <- postJSON mgr (baseUrl port <> "/auth/logout") (encode (LogoutRequest {refreshToken = "invalid.token", accessToken = Nothing}))
       -- logout is idempotent; invalid tokens are silently accepted
       responseStatus resp `shouldBe` status200
 

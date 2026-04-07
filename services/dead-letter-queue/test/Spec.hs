@@ -7,7 +7,9 @@ import Control.Monad.Logger (runStderrLoggingT)
 import Data.Aeson (decode, encode, Value)
 import qualified Data.Aeson as Aeson
 import qualified Data.Map.Strict as Map
-import Data.Time.Clock (getCurrentTime)
+import Data.Time.Clock (UTCTime (..), getCurrentTime)
+import Data.Time.Calendar (Day (..))
+import Service.Metrics (HasMetrics (..), Metrics, initMetrics)
 import Database.Persist.Sql (ConnectionPool, runMigration, runSqlPool, insert)
 import qualified Ports.Server as Server
 import qualified Ports.Consumer as KafkaPort
@@ -42,7 +44,8 @@ data TestApp = TestApp
     testAppSettings :: Settings,
     testAppCorrelationId :: CorrelationId,
     testAppDb :: ConnectionPool,
-    testAppMockKafka :: MockKafkaState
+    testAppMockKafka :: MockKafkaState,
+    testAppMetrics :: Metrics
   }
 
 instance HasLogFunc TestApp where
@@ -67,6 +70,9 @@ instance {-# OVERLAPPING #-} HasKafkaProducer TestApp where
     let producer = MockProducer state
     mockProduceMessage producer topic key value
 
+instance HasMetrics TestApp where
+  metricsL = lens testAppMetrics (\x y -> x {testAppMetrics = y})
+
 withTestApp :: (Int -> TestApp -> IO ()) -> IO ()
 withTestApp action = do
   jwk <- liftIO $ genJWK (OKPGenParam Ed25519)
@@ -76,13 +82,15 @@ withTestApp action = do
             kafka = KafkaPort.Settings {KafkaPort.kafkaBroker = "localhost:9092", KafkaPort.kafkaGroupId = "dlq-test-group", KafkaPort.kafkaDeadLetterTopic = "DEADLETTER", KafkaPort.kafkaMaxRetries = 3},
             database = Database.Settings {Database.dbType = Database.SQLite, Database.dbConnectionString = ":memory:", Database.dbPoolSize = 1, Database.dbAutoMigrate = True},
             jwtPublicKey = jwk,
-            corsOrigins = []
+            corsOrigins = [],
+            redisUrl = "redis://localhost:6379"
           }
   logOptions <- logOptionsHandle stderr True
   withLogFunc logOptions $ \logFunc -> runRIO logFunc $ do
     mockKafkaState <- liftIO newMockKafkaState
     pool <- liftIO $ Database.createConnectionPool testSettings.database
     liftIO $ runStderrLoggingT $ runSqlPool (runMigration migrateAll) pool
+    metrics <- liftIO initMetrics
 
     let testApp =
           TestApp
@@ -91,7 +99,8 @@ withTestApp action = do
               testAppSettings = testSettings,
               testAppCorrelationId = defaultCorrelationId,
               testAppDb = pool,
-              testAppMockKafka = mockKafkaState
+              testAppMockKafka = mockKafkaState,
+              testAppMetrics = metrics
             }
 
     liftIO $ testWithApplication (pure $ testAppToWai testApp) $ \port' -> action port' testApp
@@ -108,10 +117,12 @@ mockJwtConfig =
                 { atcSubject = "user-test",
                   atcEmail = Just "test@example.com",
                   atcJti = "jti-test",
-                  atcScopes = ["admin"]
+                  atcScopes = ["admin"],
+                  atcIssuedAt = UTCTime (ModifiedJulianDay 0) 0
                 }
           else return (Left "invalid token"),
-      jwtAuthSubjectPrefix = "user-"
+      jwtAuthSubjectPrefix = "user-",
+      jwtRevocationCheck = Nothing
     }
 
 type TestAppContext = '[JWTAuthConfig]

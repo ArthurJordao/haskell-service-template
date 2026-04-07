@@ -35,6 +35,7 @@ import RIO hiding (Handler)
 import Servant (Context (..), ErrorFormatters, Proxy (..))
 import Servant.Server (Handler (..), ServerError, hoistServerWithContext, serveWithContext)
 import Service.Auth (JWTAuthConfig, makeJWTAuthConfig)
+import Service.Metrics (HasMetrics (..), Metrics, initMetrics)
 import Service.CorrelationId
   ( CorrelationId (..),
     HasCorrelationId (..),
@@ -63,7 +64,8 @@ data TestApp = TestApp
     testTemplates :: (Map Text Template),
     testNotificationsDir :: FilePath,
     testDb :: ConnectionPool,
-    testJwtConfig :: JWTAuthConfig
+    testJwtConfig :: JWTAuthConfig,
+    testMetrics :: Metrics
   }
 
 instance HasLogFunc TestApp where
@@ -90,6 +92,9 @@ instance HasDB TestApp where
 
 instance HasKafkaProducer TestApp where
   produceKafkaMessage _ _ _ = return ()
+
+instance HasMetrics TestApp where
+  metricsL = lens testMetrics (\x y -> x {testMetrics = y})
 
 -- ============================================================================
 -- Fixtures
@@ -143,18 +148,30 @@ withDomainApp :: (TestApp -> IO ()) -> IO ()
 withDomainApp action =
   withSystemTempDirectory "notif-test" $ \tmpDir -> do
     pool <- makeTestPool
+    metrics <- initMetrics
     logOptions <- logOptionsHandle stderr False
     withLogFunc logOptions $ \logFunc ->
       action
         TestApp
           { testLogFunc = logFunc,
             testLogContext = Map.empty,
-            testSettings = error "unused",
+            testSettings =
+              Settings
+                { server = Server.Settings {Server.httpPort = 0, Server.httpEnvironment = "test"},
+                  kafka = KafkaPort.Settings {KafkaPort.kafkaBroker = "localhost:9092", KafkaPort.kafkaGroupId = "notification-service-test", KafkaPort.kafkaDeadLetterTopic = "DEADLETTER", KafkaPort.kafkaMaxRetries = 3},
+                  db = Database.Settings {Database.dbType = Database.SQLite, Database.dbConnectionString = ":memory:", Database.dbPoolSize = 1, Database.dbAutoMigrate = False},
+                  templatesDir = "resources/templates",
+                  notificationsDir = tmpDir,
+                  jwtPublicKey = testJWK,
+                  corsOrigins = [],
+                  redisUrl = "redis://localhost:6379"
+                },
             testCorrelationId = defaultCorrelationId,
             testTemplates = testTemplateCache,
             testNotificationsDir = tmpDir,
             testDb = pool,
-            testJwtConfig = makeJWTAuthConfig testJWK "user-"
+            testJwtConfig = makeJWTAuthConfig testJWK "user-",
+            testMetrics = metrics
           }
 
 withTestApp :: (Int -> TestApp -> IO ()) -> IO ()
@@ -182,10 +199,12 @@ withTestApp action =
               templatesDir = "resources/templates",
               notificationsDir = tmpDir,
               jwtPublicKey = testJWK,
-              corsOrigins = []
+              corsOrigins = [],
+              redisUrl = "redis://localhost:6379"
             }
     logOptions <- logOptionsHandle stderr False
     withLogFunc logOptions $ \logFunc -> do
+      metrics <- initMetrics
       let testApp =
             TestApp
               { testLogFunc = logFunc,
@@ -195,7 +214,8 @@ withTestApp action =
                 testTemplates = testTemplateCache,
                 testNotificationsDir = tmpDir,
                 testDb = pool,
-                testJwtConfig = jwtCfg
+                testJwtConfig = jwtCfg,
+                testMetrics = metrics
               }
       testWithApplication (pure $ appToWai testApp) $ \port -> action port testApp
 

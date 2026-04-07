@@ -73,7 +73,9 @@ spec = describe "Kafka Mock" $ do
                       }
                   ],
                 deadLetterTopic = TopicName "DEADLETTER",
-                maxRetries = 3
+                maxRetries = 3,
+                consumerRecordMessageMetrics = \_ _ _ _ -> return (),
+                consumerRecordOffsetMetrics = \_ _ _ _ -> return ()
               }
 
       -- Produce a message
@@ -105,7 +107,9 @@ spec = describe "Kafka Mock" $ do
                       }
                   ],
                 deadLetterTopic = TopicName "DEADLETTER",
-                maxRetries = 3
+                maxRetries = 3,
+                consumerRecordMessageMetrics = \_ _ _ _ -> return (),
+                consumerRecordOffsetMetrics = \_ _ _ _ -> return ()
               }
 
       -- Produce initial trigger message
@@ -133,7 +137,9 @@ spec = describe "Kafka Mock" $ do
                       }
                   ],
                 deadLetterTopic = TopicName "DEADLETTER",
-                maxRetries = 3
+                maxRetries = 3,
+                consumerRecordMessageMetrics = \_ _ _ _ -> return (),
+                consumerRecordOffsetMetrics = \_ _ _ _ -> return ()
               }
 
       -- Produce multiple messages
